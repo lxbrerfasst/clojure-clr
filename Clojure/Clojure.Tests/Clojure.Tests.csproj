@@ -6,11 +6,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="clojure.data.generators" Version="1.0.1.1" />
-    <PackageReference Include="clojure.test.check" Version="1.1.0.1" />
-    <PackageReference Include="clojure.test.generative" Version="1.0.1.1" />
-    <PackageReference Include="clojure.tools.namespace" Version="1.1.0.1" />
-    <PackageReference Include="clr.tools.reader" Version="1.3.4.1" />
+    <PackageReference Include="clojure.data.generators" Version="1.1.0" />
+    <PackageReference Include="clojure.test.check" Version="1.1.2" />
+    <PackageReference Include="clojure.test.generative" Version="1.1.2" />
+    <PackageReference Include="clojure.tools.namespace" Version="1.5.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Clojure.Tests.Support\Clojure.Tests.Support.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,6 +33,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\api.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\array_symbols.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\atoms.clj">
@@ -53,10 +59,19 @@
     <None Update="clojure\test_clojure\clr\added.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="clojure\test_clojure\clr\interop.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="clojure\test_clojure\clr\io.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="clojure\test_clojure\clr\process.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="clojure\test_clojure\compilation.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\compilation2.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\compilation\examples.clj">
@@ -125,13 +140,22 @@
     <None Update="clojure\test_clojure\main.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="clojure\test_clojure\math.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="clojure\test_clojure\metadata.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\method_thunks.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\multimethods.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\ns_libs.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\ns_libs_load_later.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\numbers.clj">
@@ -141,6 +165,12 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\parallel.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\param_tags.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\parse.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\pprint.clj">
@@ -173,6 +203,9 @@
     <None Update="clojure\test_clojure\protocols\more_examples.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="clojure\test_clojure\proxy\examples.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="clojure\test_clojure\reader.cljc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -185,10 +218,16 @@
     <None Update="clojure\test_clojure\repl.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="clojure\test_clojure\repl\deps.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="clojure\test_clojure\repl\example.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\rt.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\run_single_test.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\sequences.clj">
@@ -201,6 +240,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\special.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="clojure\test_clojure\streams.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="clojure\test_clojure\string.clj">

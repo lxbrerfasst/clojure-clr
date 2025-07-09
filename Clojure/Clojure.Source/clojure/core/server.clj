@@ -15,8 +15,16 @@
   (:import
    [clojure.lang LineNumberingTextReader]                                                    ;;; LineNumberingPushbackReader
    [System.Net.Sockets Socket SocketException TcpListener TcpClient]                         ;;; [java.net InetAddress Socket ServerSocket SocketException]
-   [System.IO StreamReader StreamWriter TextReader]                                                     ;;; [java.io Reader Writer PrintWriter BufferedWriter BufferedReader InputStreamReader OutputStreamWriter]
-   [System.Net Dns IPAddress]))                                                              ;;;  [java.util.concurrent.locks ReentrantLock]
+   [System.IO StreamReader StreamWriter TextReader  IOException]                             ;;; [java.io Reader Writer PrintWriter BufferedWriter BufferedReader InputStreamReader OutputStreamWriter]
+                                                                                             ;;; [java.util Properties]
+   [System.Net #_Dns IPAddress]))                                                            ;;; [java.util.concurrent.locks ReentrantLock]  -- defer Dns import until we load the proper assembly.
+
+(try 
+  (assembly-load-from (str clojure.lang.RT/SystemRuntimeDirectory "System.Net.NameResolution.dll"))
+  (catch Exception e))  ;; failing silently okay -- if we need it and didn't find it, a type reference will fail later
+
+
+(import '[System.Net Dns])
 
 (set! *warn-on-reflection* true)
 
@@ -51,7 +59,7 @@
   "Validate server config options"
   [{:keys [name port accept] :as opts}]
   (doseq [prop [:name :port :accept]] (required opts prop))
-  (when (or (not (integer? port)) (not (< -1 port 65535)))
+  (when (or (not (integer? port)) (not (<= 0 port 65535)))
     (throw (ex-info (str "Invalid socket server port: " port) opts))))
 
 (defn- accept-connection
@@ -75,12 +83,12 @@
       (require (symbol (namespace accept)))
       (let [accept-fn (resolve accept)]
         (apply accept-fn args)))
+    (catch IOException _disconnect)
     (catch SocketException _disconnect)
     (finally
       (with-lock lock
         (alter-var-root #'servers update-in [name :sessions] dissoc client-id))
-      (.Close ^System.IO.TextReader in) (.Close conn))))                                                                 ;;; .close  DM: Added (.Close in)
-
+      (.Close ^System.IO.TextReader in) (.Close conn))))                                  ;;; .close  DM: Added (.Close in) 
 (defn start-server
   "Start a socket server given the specified opts:
     :address Host or address, string, defaults to loopback address
@@ -145,14 +153,16 @@
 
 (defn- parse-props
   "Parse clojure.server.* from properties to produce a map of server configs."
-  [props]
+  [props]                                                                                          ;;; ^Properties  -- our props are a Dictionary
   (reduce
-    (fn [acc [^String k ^String v]]
+    (fn [acc [^String k ^String v]]                                                                ;;; fn [acc ^String k]
       (let [[k1 k2 k3] (str/split k #"\.")]
         (if (and (= k1 "clojure") (= k2 "server"))
-          (conj acc (merge {:name k3} (edn/read-string v)))
+                                                                                                   ;;; (let [v (get props k)]
+          (conj acc (merge {:name k3} (edn/read-string v)))                                        ;;;  )
           acc)))
-    [] props))
+    [] 
+    props))                                                                                       ;;; (.stringPropertyNames props)
 
 (defn start-servers
   "Start all servers specified in the system properties."
@@ -220,13 +230,13 @@
     (m/with-bindings
       (in-ns 'user)
       (binding [*in* (or stdin in-reader)
-                *out* (PrintWriter-on #(out-fn {:tag :out :val %1}) nil)
-                *err* (PrintWriter-on #(out-fn {:tag :err :val %1}) nil)]
+                *out* (PrintWriter-on #(out-fn {:tag :out :val %1}) nil true)
+                *err* (PrintWriter-on #(out-fn {:tag :err :val %1}) nil true)]
         (try
           (add-tap tapfn)
           (loop []
             (when (try
-                    (let [[form s] (read+string in-reader false EOF)]
+                     (let [[form s] (read+string {:eof EOF :read-cond :allow} in-reader)]
                       (try
                         (when-not (identical? form EOF)
                           (let [start (clojure.lang.RT/StartStopwatch)                                       ;;; (System/nanoTime)
@@ -288,7 +298,7 @@
                         (try
                           (assoc m :val (valf (:val m)))
                           (catch Exception ex                                        ;;; Throwable
-                            (assoc m :val (ex->data ex :print-eval-result)
+                            (assoc m :val (valf (ex->data ex :print-eval-result))
                                      :exception true)))
                         m))))))))
 

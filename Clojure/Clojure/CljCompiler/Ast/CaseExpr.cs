@@ -8,10 +8,7 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler.Context;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -100,6 +97,7 @@ namespace clojure.lang.CljCompiler.Ast
             {
                 RT.errPrintWriter().WriteLine("Performance warning, {0}:{1}:{2} - hash collision of some case test constants; if selected, those entries will be tested sequentially.",
                     Compiler.SourcePathVar.deref(),Compiler.GetLineFromSpanMap(sourceSpan),Compiler.GetColumnFromSpanMap(sourceSpan));
+                RT.errPrintWriter().Flush();
             }
         
         }
@@ -297,6 +295,7 @@ namespace clojure.lang.CljCompiler.Ast
                 {
                     RT.errPrintWriter().WriteLine("Performance warning, {0}:{1}:{2} - case has int tests, but tested expression is not primitive.",
                         Compiler.SourcePathVar.deref(),Compiler.GetLineFromSpanMap(_sourceSpan),Compiler.GetColumnFromSpanMap(_sourceSpan));
+                    RT.errPrintWriter().Flush();
                 }
                 _expr.Emit(RHC.Expression,objx,ilg);
                 ilg.Emit(OpCodes.Call,Compiler.Method_Util_IsNonCharNumeric);

@@ -8,11 +8,6 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
-
 using System;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -25,19 +20,31 @@ namespace clojure.lang.CljCompiler.Ast
 {
     public class CljILGen : ILGen
     {
+
+        private readonly ILGenerator _ilGenerator;
+        public ILGenerator ILGenerator
+        {
+            get { return _ilGenerator; }
+        }
+
         public CljILGen(ILGenerator baseIlg)
             : base(baseIlg)
         {
+            _ilGenerator = baseIlg;
         }
 
         private static bool IsVolatile(FieldInfo fi)
         {
-            // Cannot work with signatures on uncreated types
+            // Cannot work with signatures on uncreated types or from PersistedAssemblyBuilders
             {
                 Type t = fi.DeclaringType;
                 TypeBuilder tb = t as TypeBuilder;
                 if (tb != null && !tb.IsCreated())
                     return false;
+#if NET9_0_OR_GREATER
+                if (tb != null && tb.Assembly is PersistedAssemblyBuilder)
+                    return false;
+#endif
             }
 
             if (RT.IsRunningOnMono)

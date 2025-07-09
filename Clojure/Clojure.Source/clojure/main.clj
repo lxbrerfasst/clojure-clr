@@ -49,7 +49,7 @@
 
 (def ^:private core-namespaces
   #{"clojure.core" "clojure.core.reducers" "clojure.core.protocols" "clojure.data" "clojure.datafy"
-    "clojure.edn" "clojure.instant" "clojure.java.io" "clojure.main" "clojure.pprint" "clojure.reflect"
+    "clojure.edn" "clojure.instant" "clojure.clr.io" "clojure.main" "clojure.pprint" "clojure.reflect"
     "clojure.repl" "clojure.set" "clojure.spec.alpha" "clojure.spec.gen.alpha" "clojure.spec.test.alpha"
     "clojure.string" "clojure.template" "clojure.uuid" "clojure.walk" "clojure.xml" "clojure.zip"})
 
@@ -83,10 +83,10 @@
 (defn stack-element-str
   "Returns a (possibly unmunged) string representation of a StackTraceElement"
   {:added "1.3"}
-  [^System.Diagnostics.StackFrame el]                                                   ;;; StackTraceElement
-  (let [file (.GetFileName el)                                       ;;; getFileName
-        clojure-fn? (and file (or (.EndsWith file ".clj")            ;;; endsWith
-                                  (.EndsWith file ".cljc")           ;;; endsWith
+  [^System.Diagnostics.StackFrame el]                                                          ;;; StackTraceElement
+  (let [file (.GetFileName el)                                                                 ;;; getFileName
+        clojure-fn? (and file (or (.EndsWith file ".clj")                                      ;;; endsWith
+                                  (.EndsWith file ".cljc") (.EndsWith file ".cljr")            ;;; endsWith + DM: Added cljr
                                   (= file "NO_SOURCE_FILE")))]
     (str (if clojure-fn?
            (demunge (stack-element-classname el))                              ;;; (.getClassName el))
@@ -134,7 +134,7 @@
   its behavior of both supporting .unread and collapsing all of CR, LF, and
   CRLF to a single \\newline."
   [s]
-  (let [c (.Read s)]                             ;;; .read
+  (let [c (.Read s)]                             ;;; .read          because of the indeterminate type of s, we can't type hint and thus can't get rid of reflection here and similar locations
     (cond
      (= c (int \newline)) :line-start
      (= c -1) :stream-end
@@ -377,7 +377,8 @@
 by default when a new command-line REPL is started."} repl-requires
   '[[clojure.repl :refer (source apropos dir pst doc find-doc)]
     ;;;[clojure.java.javadoc :refer (javadoc)]                            ;;; commented out
-    [clojure.pprint :refer (pp pprint)]])
+    [clojure.pprint :refer (pp pprint)]
+    [clojure.repl.deps :refer (add-libs add-lib sync-deps)]])
 
 (defmacro with-read-known
   "Evaluates body with *read-eval* set to a \"known\" value,
@@ -467,24 +468,25 @@ by default when a new command-line REPL is started."} repl-requires
              (caught e)
              (set! *e e))))]
     (with-bindings
-     (try
-      (init)
-      (catch Exception e                ;;; Throwable
-        (caught e)
-        (set! *e e)))
-     (prompt)
-     (flush)
-     (loop []
-       (when-not 
-          (try (identical? (read-eval-print) request-exit)
-    (catch Exception e                 ;;; Throwable
-     (caught e)
-     (set! *e e)
-     nil))
-         (when (need-prompt)
-           (prompt)
-           (flush))
-         (recur))))))
+      (binding [*repl* true]
+       (try
+        (init)
+        (catch Exception e                ;;; Throwable
+          (caught e)
+          (set! *e e)))
+       (prompt)
+       (flush)
+       (loop []
+         (when-not 
+            (try (identical? (read-eval-print) request-exit)
+      (catch Exception e                 ;;; Throwable
+       (caught e)
+       (set! *e e)
+       nil))
+           (when (need-prompt)
+             (prompt)
+             (flush))
+           (recur)))))))
 
 (defn load-script
   "Loads Clojure source from a file or resource given its path. Paths
@@ -625,15 +627,15 @@ java -cp clojure.jar clojure.main -i init.clj script.clj args...")
                          ((requiring-resolve 'clojure.pprint/pprint) report)))
           err-path (when (= target "file")
                      (try
-                       (let [f (FileInfo. (Path/Join (Path/GetTempPath) (str "clojure-" (System.Guid/NewGuid) ".edn")))]     ;;; (.toFile (Files/createTempFile "clojure-" ".edn" (into-array FileAttribute [])))
+                       (let [f (FileInfo. (Path/Combine (Path/GetTempPath) (str "clojure-" (System.Guid/NewGuid) ".edn")))]     ;;; (.toFile (Files/createTempFile "clojure-" ".edn" (into-array FileAttribute [])))
                          (with-open [w (StreamWriter. (.OpenWrite f))]                                                                       ;;; [w (BufferedWriter. (FileWriter. f))
                            (binding [*out* w] (println report-str)))
-                         (.FullName f))                                                                                      ;;; .getAbsolutePath
-                       (catch Exception _)))] ;; ignore, fallback to stderr                                                  ;;; Throwable
+                         (.FullName f))                                                                                         ;;; .getAbsolutePath
+                       (catch Exception _)))] ;; ignore, fallback to stderr                                                     ;;; Throwable
       (binding [*out* *err*]
         (if err-path
-          (println (str message (Environment/NewLine) "Full report at:" (Environment/NewLine) err-path))                     ;;; System/lineSeparator
-          (println (str report-str (Environment/NewLine) message)))))))                                                      ;;; System/lineSeparator
+          (println (str message Environment/NewLine "Full report at:" (Environment/NewLine) err-path))                          ;;; System/lineSeparator
+          (println (str report-str Environment/NewLine message)))))))                                                           ;;; System/lineSeparator
 
 (defn main
   "Usage: java -cp clojure.jar clojure.main [init-opt*] [main-opt] [arg*]

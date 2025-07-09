@@ -8,10 +8,7 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler.Context;
 using System;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -49,7 +46,7 @@ namespace clojure.lang.CljCompiler.Ast
 
         #region Ctors
 
-        protected InstanceFieldOrPropertyExpr(string source, IPersistentMap spanMap, Symbol tag, Expr target, string memberName, TInfo tinfo)
+        protected InstanceFieldOrPropertyExpr(string source, IPersistentMap spanMap, Symbol tag, Expr target, string memberName, TInfo tinfo, bool ignoreNullTargetType=false)
         {
             _source = source;
             _spanMap = spanMap;
@@ -58,8 +55,8 @@ namespace clojure.lang.CljCompiler.Ast
             _tinfo = tinfo;
             _tag = tag;
 
-            _targetType = target.HasClrType ? target.ClrType : null;
-
+            _targetType = target.HasClrType ? target.ClrType : ignoreNullTargetType ? typeof(object) : null;
+           
             // Java version does not include check on _targetType
             // However, this seems consistent with the checks in the generation code.
             if ((_targetType == null || _tinfo == null) && RT.booleanCast(RT.WarnOnReflectionVar.deref()))
@@ -68,11 +65,13 @@ namespace clojure.lang.CljCompiler.Ast
                 {
                     RT.errPrintWriter().WriteLine("Reflection warning, {0}:{1}:{2} - reference to field/property {3} can't be resolved.",
                         Compiler.SourcePathVar.deref(), Compiler.GetLineFromSpanMap(_spanMap), Compiler.GetColumnFromSpanMap(_spanMap), _memberName);
+                    RT.errPrintWriter().Flush();
                 }
                 else
                 {
                     RT.errPrintWriter().WriteLine("Reflection warning, {0}:{1}:{2} - reference to field/property {3} on {4} can't be resolved.",
                        Compiler.SourcePathVar.deref(), Compiler.GetLineFromSpanMap(_spanMap), Compiler.GetColumnFromSpanMap(_spanMap), _memberName, _targetType.FullName);
+                    RT.errPrintWriter().Flush();
                 }
             }
         }
@@ -180,8 +179,8 @@ namespace clojure.lang.CljCompiler.Ast
     {
         #region C-tors
 
-        public InstanceFieldExpr(string source, IPersistentMap spanMap, Symbol tag, Expr target, string fieldName, FieldInfo finfo)
-            :base(source,spanMap,tag,target,fieldName,finfo)  
+        public InstanceFieldExpr(string source, IPersistentMap spanMap, Symbol tag, Expr target, string fieldName, FieldInfo finfo, bool ignoreNullTargetType = false)
+            :base(source,spanMap,tag,target,fieldName,finfo,ignoreNullTargetType)  
         {
         }
 
@@ -268,8 +267,8 @@ namespace clojure.lang.CljCompiler.Ast
     {
         #region C-tors
 
-        public InstancePropertyExpr(string source, IPersistentMap spanMap, Symbol tag, Expr target, string propertyName, PropertyInfo pinfo)
-            :base(source,spanMap,tag, target,propertyName,pinfo)  
+        public InstancePropertyExpr(string source, IPersistentMap spanMap, Symbol tag, Expr target, string propertyName, PropertyInfo pinfo, bool ignoreNullTargetType = false)
+            :base(source,spanMap,tag, target,propertyName,pinfo,ignoreNullTargetType)  
         {
         }
 

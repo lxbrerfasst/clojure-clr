@@ -25,7 +25,7 @@ namespace clojure.lang
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "ClojureJVM name match")]
         static public int hash(object o)
         {
-            return o == null ? 0 : o.GetHashCode();
+            return hasheq(o);
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "ClojureJVM name match")]
@@ -41,7 +41,7 @@ namespace clojure.lang
                 return Numbers.hasheq(o);
 
             if (o is string s)
-                return Murmur3.HashInt(s.GetHashCode());
+                return Murmur3.HashString(s);
 
             return o.GetHashCode();
         }
@@ -810,6 +810,37 @@ namespace clojure.lang
             return false;
         }
 
+        public static bool IsPosDigit(string s)
+        {
+            if (s.Length != 1)
+                return false;
+            char c = s[0];
+            return c >= '1' && c <= '9';
+        }
+
+        public static Symbol arrayTypeToSymbol(Type t)
+        {
+            int dim = 0;
+            Type componentType = t;
+            while (componentType.IsArray)
+            {
+                dim++;
+                if (dim > 9)
+                    break;
+                componentType = componentType.GetElementType();
+            }
+
+            if (dim <= 9 && dim >= 1)
+            {
+                if (Compiler.TryPrimTypeToName(componentType, out string name))
+                    return Symbol.intern(name, dim.ToString());
+                else
+                    return Symbol.intern(componentType.FullName, dim.ToString());
+            }
+            else
+                return Symbol.intern(null, t.FullName);
+        }
+
 
         // I can hardly claim this is original.
         public static void Shuffle(IList list)
@@ -867,7 +898,7 @@ namespace clojure.lang
             //{
                 switch (Type.GetTypeCode(type))
                 {
-                    case TypeCode.Char:
+                    //case TypeCode.Char:
                     case TypeCode.SByte:
                     case TypeCode.Byte:
                     case TypeCode.Int16:
@@ -890,7 +921,7 @@ namespace clojure.lang
         {
             switch (Type.GetTypeCode(type))
             {
-                case TypeCode.Char:
+                //case TypeCode.Char:
                 case TypeCode.SByte:
                 case TypeCode.Byte:
                 case TypeCode.Int16:

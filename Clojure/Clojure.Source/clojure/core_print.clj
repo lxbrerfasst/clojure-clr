@@ -298,6 +298,7 @@
         [ns kvs]))))
 
 (defmethod print-method clojure.lang.IPersistentMap [m, ^System.IO.TextWriter w]
+  (print-meta m w)
   (let [[ns lift-kvs] (lift-ns m)]
     (if ns
       (print-prefix-map (str "#:" ns) lift-kvs pr-on w)
@@ -432,21 +433,24 @@
    Decimal "System.Decimal" })  ;; ADDED
   
 (defmethod print-method Type [^Type c, ^System.IO.TextWriter w]
-  (.Write w (.FullName c)))   ;;; .getName => .FullName
+  (if (.IsArray c)                                                   ;;; .isArray
+    (print-method (clojure.lang.Util/arrayTypeToSymbol c) w)
+    (.Write w (.FullName c))))                                       ;;; .getName => .FullName
+  
 
 (defmethod print-dup Type [^Type c, ^System.IO.TextWriter w]
   (cond
-    (.IsPrimitive c) (do                                             ;; .isPrimitive
+    (.IsPrimitive c) (do                                             ;;; .isPrimitive
                        (.Write w "#=(identity ")
                        (.Write w ^String (primitives-classnames c))
                        (.Write w ")"))
-    (.IsArray c) (do                                                 ;; .isArray ,  java.lang.Class/forName =>
+    (.IsArray c) (do                                                 ;;; .isArray ,  java.lang.Class/forName =>
                    (.Write w "#=(clojure.lang.RT/classForName \"")
-                   (.Write w (.FullName c))                           ;; .getName => .FullName
+                   (.Write w (.FullName c))                          ;;; .getName => .FullName
                    (.Write w "\")"))
     :else (do
             (.Write w "#=")
-            (.Write w (.FullName c)))))    ;;; .getName => .FullName
+            (.Write w (.FullName c)))))                              ;;; .getName => .FullName
 
 (defmethod print-method clojure.lang.BigDecimal [b, ^System.IO.TextWriter w]    ;;; java.math.BigDecimal
   (.Write w (str b))
@@ -468,7 +472,7 @@
                    (if qmode
                       (recur r2 (not= c2 \E))
                       (recur r2 (= c2 \Q))))
-        (= c \") (do
+        (= c \") (do;;; "   (Just to keep the display happy in the editor)
                    (if qmode
                      (.Write w "\\E\\\"\\Q")
                      (.Write w "\\\""))
@@ -476,7 +480,7 @@
         :else    (do
                    (.Write w c)
                    (recur r qmode)))))
-  (.Write w \"))
+  (.Write w \"))                                ;;; "   (Just to keep the display happy in the editor)
 
 (defmethod print-dup System.Text.RegularExpressions.Regex [p ^System.IO.TextWriter w] (print-method p w))  ;;; java.util.regex.Pattern =>
   
@@ -511,8 +515,19 @@
 (defmethod print-method clojure.lang.IDeref [o ^System.IO.TextWriter w]
   (print-tagged-object o (deref-as-map o) w))
 
-(defmethod print-method  System.Diagnostics.StackFrame [^System.Diagnostics.StackFrame o ^System.IO.TextWriter w]                    ;;;  StackTraceElement  ^StackTraceElement
-  (print-method [(symbol (.FullName (.GetType o))) (symbol (.Name (.GetMethod o))) (.GetFileName o) (.GetFileLineNumber o)] w))      ;;; (.getClassName o)  (.getMethodName o) .getFileName .getLineNumber
+;;; DM:Added
+(defn- stack-frame-info [^System.Diagnostics.StackFrame sf]
+  (if (nil? sf)
+    nil
+    (if-let [m (.GetMethod sf)]
+      [(symbol (.FullName (.DeclaringType m)))
+       (symbol (.Name m))
+       (or (.GetFileName sf) "NO_FILE")
+       (.GetFileLineNumber sf)]
+      ["UNKNOWN" "NO_METHOD" "NO_FILE" -1])))
+
+(defmethod print-method  System.Diagnostics.StackFrame [^System.Diagnostics.StackFrame o ^System.IO.TextWriter w]       ;;;  StackTraceElement  ^StackTraceElement
+  (print-method (stack-frame-info o) w))                                                                            ;;;(print-method [(symbol (.getClassName o)) (symbol (.getMethodName o)) (.getFileName o) (.getLineNumber o)] w)) 
 
 (defn StackTraceElement->vec
   "Constructs a data representation for a StackTraceElement: [class method file line]"
@@ -520,12 +535,7 @@
   [^System.Diagnostics.StackFrame o]
   (if (nil? o)
     nil
-    [(symbol (.FullName (.GetType o)))
-     (if-let [m (.GetMethod o)]
-       (symbol (.Name m))
-       "NO_METHOD")
-     (or (.GetFileName o) "NO_FILE")
-     (.GetFileLineNumber o)]))
+    (stack-frame-info o)))
 
 (defn Throwable->map
   "Constructs a data representation for a Throwable with keys:
@@ -618,10 +628,13 @@
 ;;;(defn ^java.io.PrintWriter PrintWriter-on
 ;;;  "implements java.io.PrintWriter given flush-fn, which will be called
 ;;;  when .flush() is called, with a string built up since the last call to .flush().
-;;;  if not nil, close-fn will be called with no arguments when .close is called"
+;;;  if not nil, close-fn will be called with no arguments when .close is called.
+;;;  autoflush? determines if the PrintWriter will autoflush, false by default."
 ;;;  {:added "1.10"}
-;;;  [flush-fn close-fn]
-;;;  (let [sb (StringBuilder.)]
+;;;  ([flush-fn close-fn]
+;;;   (PrintWriter-on flush-fn close-fn false))
+;;;  ([flush-fn close-fn autoflush?]
+;;;   (let [sb (StringBuilder.)]
 ;;;    (-> (proxy [Writer] []
 ;;;          (flush []
 ;;;                 (when (pos? (.length sb))
@@ -640,20 +653,22 @@
 ;;;        java.io.PrintWriter.)))
 
 (defn ^System.IO.TextWriter PrintWriter-on
-  [flush-fn close-fn]
-  (proxy [System.IO.StringWriter] []  
-    (Flush [] 
+  ([flush-fn close-fn]
+   (PrintWriter-on flush-fn close-fn false))
+  ([flush-fn close-fn autoflush?]                       ;;; there is no autflush property for StringWriter
+   (proxy [System.IO.StringWriter] []  
+     (Flush [] 
 	      (let [^System.IO.StringWriter this this]
 	       (proxy-super Flush))
 	      (let [sb (.GetStringBuilder ^System.IO.StringWriter this)]
             (when (pos? (.Length sb))
               (flush-fn (.ToString sb)))
             (.set_Length sb 0)))
-   (Close []
+     (Close []
           (.Flush ^System.IO.StringWriter this)
           (when close-fn (close-fn))
 		  (let [^System.IO.StringWriter this this]
 		    (proxy-super Close))
-		  nil)))
+		  nil))))
 
 

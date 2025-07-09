@@ -8,18 +8,14 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler;
+using clojure.lang.CljCompiler.Ast;
+using clojure.lang.CljCompiler.Context;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
-using clojure.lang.CljCompiler;
-using clojure.lang.CljCompiler.Ast;
-using Microsoft.Scripting.Generation;
 using System.Runtime.Serialization;
 
 namespace clojure.lang
@@ -122,6 +118,10 @@ namespace clojure.lang
             Type t = proxyTB.CreateType();
             //if (Compiler.IsCompiling)
             //    SaveProxyContext();
+
+            if (Compiler.IsCompiling)
+                Compiler.RegisterDuplicateType(t);
+
             return t;
         }
 
@@ -416,13 +416,23 @@ namespace clojure.lang
             }
 
             foreach (Type ifType in allInterfaces)
-                foreach (PropertyInfo p in ifType.GetProperties())
+            {
+                try
                 {
-                    MethodSignature sig = new MethodSignature(p);
-                    if (!considered.Contains(sig))
-                        properties.Add(p);
-                    considered.Add(sig);
+                    foreach (PropertyInfo p in ifType.GetProperties())
+                    {
+                        MethodSignature sig = new MethodSignature(p);
+                        if (!considered.Contains(sig))
+                            properties.Add(p);
+                        considered.Add(sig);
+                    }
+                } 
+                catch (NotSupportedException)
+                {
+                    // do nothing
+                    // Types in PersistedAssemblyBuilders throw on GetProperties
                 }
+            }
             foreach (PropertyInfo pi in properties)
             {
                 PropertyBuilder pb = proxyTB.DefineProperty(pi.Name,

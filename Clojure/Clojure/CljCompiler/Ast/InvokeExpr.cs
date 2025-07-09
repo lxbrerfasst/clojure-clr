@@ -8,10 +8,7 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler.Context;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -93,7 +90,7 @@ namespace clojure.lang.CljCompiler.Ast
                         }
                         String mname = Compiler.munge(mmapVal.Symbol.ToString());
                        
-                        IList<MethodBase> methods = Reflector.GetMethods(_protocolOn, mname, null, args.count() - 1,  false);
+                        IList<MethodBase> methods = Reflector.GetMethods(_protocolOn, mname, GenericTypeArgList.Empty, args.count() - 1,  false);
                         if (methods.Count != 1)
                             throw new ArgumentException(String.Format("No single method: {0} of interface: {1} found for function: {2} of protocol: {3}",
                                 mname, _protocolOn.FullName, fvar.Symbol, pvar.Symbol));
@@ -144,7 +141,7 @@ namespace clojure.lang.CljCompiler.Ast
             bool tailPosition = Compiler.InTailCall(pcon.Rhc);
             pcon = pcon.EvalOrExpr();
 
-            Expr fexpr = Compiler.Analyze(pcon,form.first());
+            Expr fexpr = Compiler.Analyze(pcon, form.first());
             VarExpr varFexpr = fexpr as VarExpr;
 
             if (varFexpr != null && varFexpr.Var.Equals(Compiler.InstanceVar) && RT.count(form) == 3)
@@ -158,27 +155,35 @@ namespace clojure.lang.CljCompiler.Ast
                 }
             }
 
-            if ( RT.booleanCast(Compiler.GetCompilerOption(Compiler.DirectLinkingKeyword))
+            if (RT.booleanCast(Compiler.GetCompilerOption(Compiler.DirectLinkingKeyword))
                 && varFexpr != null
-                && pcon.Rhc != RHC.Eval )
+                && pcon.Rhc != RHC.Eval)
             {
                 Var v = varFexpr.Var;
-                if ( ! v.isDynamic() && !RT.booleanCast(RT.get(v.meta(), Compiler.RedefKeyword, false)) && !RT.booleanCast(RT.get(v.meta(), RT.DeclaredKey, false)) )
+                if (!v.isDynamic() && !RT.booleanCast(RT.get(v.meta(), Compiler.RedefKeyword, false)) && !RT.booleanCast(RT.get(v.meta(), RT.DeclaredKey, false)))
                 {
                     Symbol formTag = Compiler.TagOf(form);
                     //object arglists = RT.get(RT.meta(v), Compiler.ArglistsKeyword);
                     int arity = RT.count(form.next());
                     object sigtag = SigTag(arity, v);
                     object vtag = RT.get(RT.meta(v), RT.TagKey);
-                    if (StaticInvokeExpr.Parse(v, RT.next(form), formTag ?? sigtag ?? vtag) is StaticInvokeExpr ret && !((Compiler.IsCompiling || Compiler.IsCompilingDefType) && GenContext.IsInternalAssembly(ret.Method.DeclaringType.Assembly)))
+                    //if (StaticInvokeExpr.Parse(v, RT.next(form), formTag ?? sigtag ?? vtag) is StaticInvokeExpr ret && !((Compiler.IsCompiling || Compiler.IsCompilingDefType) && GenContext.IsInternalAssembly(ret.Method.DeclaringType.Assembly)))
+                    //{
+                    //    //Console.WriteLine("invoke direct: {0}", v);
+                    //    return ret;
+                    //}
+                    ////Console.WriteLine("NOT direct: {0}", v);
+                    if (StaticInvokeExpr.Parse(v, RT.next(form), formTag ?? sigtag ?? vtag) is StaticInvokeExpr ret)
                     {
-                        //Console.WriteLine("invoke direct: {0}", v);
-                        return ret;
+                        var isCompiling = Compiler.IsCompiling || Compiler.IsCompilingDefType;
+                        var retAssembly = ret.Method.DeclaringType.Assembly;
+                        var isInternal = GenContext.IsInternalAssembly(retAssembly);
+                        if (!(isCompiling && isInternal))
+                            return ret;
                     }
-                    //Console.WriteLine("NOT direct: {0}", v);
                 }
             }
-
+            
             if (varFexpr != null && pcon.Rhc != RHC.Eval)
             {
                 Var v = varFexpr.Var;
@@ -206,9 +211,25 @@ namespace clojure.lang.CljCompiler.Ast
                 return new KeywordInvokeExpr((string)Compiler.SourceVar.deref(), (IPersistentMap)Compiler.SourceSpanVar.deref(), Compiler.TagOf(form), kwFexpr, target);
             }
 
+            // Preserving the existing static field bug that replaces a reference in parens with
+            // the field itself rather than trying to invoke the value in the field. This is
+            // an exception to the uniform Class/member qualification per CLJ-2806 ticket.
+
+            if (fexpr is StaticFieldExpr || fexpr is StaticPropertyExpr)
+                return fexpr;
+
+
+            if (fexpr is QualifiedMethodExpr qmfexpr)
+                return ToHostExpr(pcon,
+                    qmfexpr,
+                    Compiler.TagOf(form),
+                    tailPosition,
+                    form.next());
+
+
             IPersistentVector args = PersistentVector.EMPTY;
-            for ( ISeq s = RT.seq(form.next()); s != null; s = s.next())
-                args = args.cons(Compiler.Analyze(pcon,s.first()));
+            for (ISeq s = RT.seq(form.next()); s != null; s = s.next())
+                args = args.cons(Compiler.Analyze(pcon, s.first()));
 
             //if (args.count() > Compiler.MAX_POSITIONAL_ARITY)
             //    throw new ArgumentException(String.Format("No more than {0} args supported", Compiler.MAX_POSITIONAL_ARITY));
@@ -219,6 +240,171 @@ namespace clojure.lang.CljCompiler.Ast
                 fexpr,
                 args,
                 tailPosition);
+        }
+        
+        static Expr ToHostExpr(ParserContext pcon, QualifiedMethodExpr qmfexpr, Symbol tag, bool tailPosition, ISeq args)
+        {
+            var source = (string)Compiler.SourceVar.deref();
+            var spanMap = (IPersistentMap)Compiler.SourceSpanVar.deref();
+
+
+            // we have the form (qmfexpr ...args...)
+            // We need to decide what the pieces are in ...args...
+
+            Expr instance = null;
+            if (qmfexpr.Kind == QualifiedMethodExpr.EMethodKind.INSTANCE)
+            {
+                instance = Compiler.Analyze(pcon.EvalOrExpr(), RT.first(args));
+                args = RT.next(args);
+            }
+
+            // We handle zero-arity calls separately, similarly to how HostExpr handles them.
+            // Constructors not included here.
+            // We are trying to discriminate field access, property access, and method calls on zero arguments.
+            // 
+            // One special case here:  Suppose we have a zero-arity _generic_method call, with type-args provided.
+            // THis will look like:   (Type/StaticMethod (type-args type1 ..))  or (Type/InstanceMEthod instance-expression (type-args type1 ..))
+            // We check for the arg count before removing the type-args, so these will be handled by the non-zero-arity code.
+            // That is okay -- because this is generic, it can't be a field or property access, so we can treat it as a method call.
+
+
+            object firstArg = RT.first(args);
+            GenericTypeArgList genericTypeArgs;
+
+            if (firstArg is ISeq && RT.first(firstArg) is Symbol symbol && symbol.Equals(HostExpr.TypeArgsSym))
+            {
+                // We have a type args supplied for a generic method call
+                // (. thing methodname (type-args type1 ... ) args ...)
+                genericTypeArgs = GenericTypeArgList.Create(RT.next(firstArg));
+                args = RT.next(args);
+            }
+            else
+            {
+                genericTypeArgs = GenericTypeArgList.Empty;
+            }
+
+            // Now we have a potential conflict.  What if we have a hinted signature on the QME?
+            // Who wins the type-arg battle?
+
+            // If the QME has a nonempty generic type args list, we us it in preference.
+
+            if ( qmfexpr.HintedSig != null && !qmfexpr.HintedSig.GenericTypeArgs.IsEmpty)
+                genericTypeArgs = qmfexpr.HintedSig.GenericTypeArgs;
+
+            bool hasGenericTypeArgs = !genericTypeArgs.IsEmpty;
+
+            bool isZeroArity = RT.count(args) == 0 && qmfexpr.Kind != QualifiedMethodExpr.EMethodKind.CTOR;
+
+            if (isZeroArity)
+            {
+                PropertyInfo pinfo;
+                FieldInfo finfo;
+
+                switch (qmfexpr.Kind)
+                {
+                    case QualifiedMethodExpr.EMethodKind.INSTANCE:
+                        if (!hasGenericTypeArgs && (finfo = Reflector.GetField(qmfexpr.MethodType, qmfexpr.MethodName,false)) != null)
+                            return new InstanceFieldExpr(source, spanMap, tag, instance, qmfexpr.MethodName, finfo, true);
+                        if (!hasGenericTypeArgs && (pinfo = Reflector.GetProperty(qmfexpr.MethodType, qmfexpr.MethodName, false)) != null)
+                            return new InstancePropertyExpr(source, spanMap, tag, instance, qmfexpr.MethodName, pinfo, true);
+                        if (Reflector.GetArityZeroMethod(qmfexpr.MethodType, qmfexpr.MethodName, genericTypeArgs, false) != null)
+                            return new InstanceMethodExpr(source, spanMap, tag, instance, qmfexpr.MethodType, qmfexpr.MethodName, genericTypeArgs, new List<HostArg>(), tailPosition);
+
+                        string typeArgsStr = hasGenericTypeArgs ? $" and generic type args {genericTypeArgs.GenerateGenericTypeArgsString()}" : "";
+                        throw new MissingMemberException($"No instance field, property, or method taking 0 args{typeArgsStr} named {qmfexpr.MethodName} found for {qmfexpr.MethodType.Name}");
+
+                    case QualifiedMethodExpr.EMethodKind.STATIC:
+                        if ((finfo = Reflector.GetField(qmfexpr.MethodType, qmfexpr.MethodName, true)) != null)
+                            return new StaticFieldExpr(source, spanMap, tag, qmfexpr.MethodType, qmfexpr.MethodName, finfo);
+                        if ((pinfo = Reflector.GetProperty(qmfexpr.MethodType, qmfexpr.MethodName, true)) != null)
+                            return new StaticPropertyExpr(source, spanMap, tag, qmfexpr.MethodType, qmfexpr.MethodName, pinfo);
+                        if (Reflector.GetArityZeroMethod(qmfexpr.MethodType, qmfexpr.MethodName, genericTypeArgs, true) != null)
+                            return new StaticMethodExpr(source, spanMap, tag, qmfexpr.MethodType, qmfexpr.MethodName, genericTypeArgs, new List<HostArg>(), tailPosition);
+
+                        typeArgsStr = hasGenericTypeArgs ? $" and generic type args {genericTypeArgs.GenerateGenericTypeArgsString()}" : "";
+                        throw new MissingMemberException($"No static field, property, or method taking 0 args{typeArgsStr} named {qmfexpr.MethodName} found for {qmfexpr.MethodType.Name}");
+
+                    default:
+                        // Constructor -- this won't happen, we fall through to the code below.
+                        break;
+                }
+            }
+
+            if (qmfexpr.HintedSig != null )
+            {
+                //  What if there is a hinted signature AND the arguments have a type-args list?
+                //  In the same way that inferred and tagged types on the arguments are overridden by the hinted signature, we do the same with type-args -- ignore it.
+
+                MethodBase method = QualifiedMethodExpr.ResolveHintedMethod(qmfexpr.MethodType, qmfexpr.MethodName, qmfexpr.Kind, qmfexpr.HintedSig);
+                switch (qmfexpr.Kind)
+                {
+                    case QualifiedMethodExpr.EMethodKind.CTOR:
+                        return new NewExpr(
+                            qmfexpr.MethodType, 
+                            (ConstructorInfo)method, 
+                            HostExpr.ParseArgs(pcon, args), 
+                            spanMap);
+
+                    case QualifiedMethodExpr.EMethodKind.INSTANCE:
+                        return new InstanceMethodExpr(
+                            source, 
+                            spanMap,
+                            tag,
+                            instance,
+                            qmfexpr.MethodType,
+                            Compiler.munge(qmfexpr.MethodName), 
+                            (MethodInfo)method,
+                            genericTypeArgs,                 
+                            HostExpr.ParseArgs(pcon, args),
+                            tailPosition);
+
+                    default:
+                        return new StaticMethodExpr(
+                            source,
+                            spanMap,
+                            tag, 
+                             qmfexpr.MethodType,
+                             Compiler.munge(qmfexpr.MethodName), 
+                             (MethodInfo)method,
+                             genericTypeArgs,
+                             HostExpr.ParseArgs(pcon,args),
+                             tailPosition);
+                }
+            }
+            else
+            {
+                switch (qmfexpr.Kind)
+                {
+                    case QualifiedMethodExpr.EMethodKind.CTOR:
+                        return new NewExpr(
+                            qmfexpr.MethodType, 
+                            HostExpr.ParseArgs(pcon, args), 
+                            (IPersistentMap)Compiler.SourceSpanVar.deref());
+
+                    case QualifiedMethodExpr.EMethodKind.INSTANCE:
+                        return new InstanceMethodExpr(
+                            (string)Compiler.SourceVar.deref(),
+                            (IPersistentMap)Compiler.SourceSpanVar.deref(),
+                            tag,
+                            instance,
+                            qmfexpr.MethodType,
+                            Compiler.munge(qmfexpr.MethodName),
+                            genericTypeArgs,
+                            HostExpr.ParseArgs(pcon, args),
+                            tailPosition);
+
+                    default:
+                        return new StaticMethodExpr(
+                            (string)Compiler.SourceVar.deref(),
+                            (IPersistentMap)Compiler.SourceSpanVar.deref(),
+                            tag, 
+                            qmfexpr.MethodType,
+                            Compiler.munge(qmfexpr.MethodName),
+                            genericTypeArgs,
+                            HostExpr.ParseArgs(pcon, args),
+                            tailPosition);
+                }
+            }
         }
 
         #endregion

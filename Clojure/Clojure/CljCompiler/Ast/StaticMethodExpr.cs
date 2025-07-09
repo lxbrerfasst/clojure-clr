@@ -8,10 +8,7 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler.Context;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -35,16 +32,25 @@ namespace clojure.lang.CljCompiler.Ast
 
         #region Ctors
 
-        public StaticMethodExpr(string source, IPersistentMap spanMap, Symbol tag, Type type, string methodName, IList<Type> typeArgs, IList<HostArg> args, bool tailPosition)
+        public StaticMethodExpr(string source, IPersistentMap spanMap, Symbol tag, Type type, string methodName, GenericTypeArgList typeArgs, IList<HostArg> args, bool tailPosition)
             : base(source,spanMap,tag,methodName,typeArgs, args, tailPosition)
         {
             _type = type;
-            _method  = Reflector.GetMatchingMethod(spanMap, _type, _args, _methodName, typeArgs);
+            _method  = Reflector.GetMatchingMethod(spanMap, _type, _args, _methodName, typeArgs,true);
             if ( _method != null && warnOnBoxedKeyword.Equals(RT.UncheckedMathVar.deref()) && IsBoxedMath(_method))
             {
                 RT.errPrintWriter().WriteLine("Boxed math warning, {0}:{1}:{2} - call {3}.",
                     Compiler.SourcePathVar.deref(), Compiler.GetLineFromSpanMap(spanMap), Compiler.GetColumnFromSpanMap(spanMap), _method.ToString());
+                RT.errPrintWriter().Flush();
             }
+        }
+
+        public StaticMethodExpr(string source, IPersistentMap spanMap, Symbol tag, Type type, string methodName, MethodInfo resolvedMethod, GenericTypeArgList typeArgs, IList<HostArg> args, bool tailPosition)
+            : base(source, spanMap, tag, methodName, typeArgs, args, tailPosition)
+        {
+            Compiler.CheckMethodArity(resolvedMethod, RT.count(args));
+            _type = type;
+            _method = resolvedMethod;
         }
 
         public static bool IsBoxedMath(MethodBase m)

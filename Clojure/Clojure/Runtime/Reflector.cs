@@ -8,24 +8,21 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
-using System.Linq.Expressions;
+using clojure.lang.CljCompiler.Ast;
+using clojure.lang.CljCompiler.Context;
+using clojure.lang.Runtime;
+using clojure.lang.Runtime.Binding;
 using Microsoft.Scripting.Actions;
-using System.Dynamic;
 using Microsoft.Scripting.Actions.Calls;
 using Microsoft.Scripting.Runtime;
-using clojure.lang.CljCompiler.Ast;
-using System.Text;
-using clojure.lang.Runtime.Binding;
-using clojure.lang.Runtime;
+using System;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace clojure.lang
 {
@@ -64,9 +61,18 @@ namespace clojure.lang
 
             foreach (Type type in typesToCheck)
             {
-                IEnumerable<PropertyInfo> einfo
-                     = type.GetProperties(flags).Where(info => info.Name == name && info.GetIndexParameters().Length == 0);
-                pinfos.AddRange(einfo);
+                try
+                {
+
+                    IEnumerable<PropertyInfo> einfo
+                         = type.GetProperties(flags).Where(info => info.Name == name && info.GetIndexParameters().Length == 0);
+                    pinfos.AddRange(einfo);
+                }
+                catch (NotSupportedException)
+                {
+                    // do nothing
+                    // Types in PersistedAssemblyBuilders throw on GetProperties
+                }
             }
 
 
@@ -125,7 +131,7 @@ namespace clojure.lang
             if (prop != null)
                 return Reflector.prepRet(prop.PropertyType,prop.GetValue(target, Array.Empty<object>()));
 
-            MethodInfo method = GetArityZeroMethod(t, fieldName, false);
+            MethodInfo method = GetArityZeroMethod(t, fieldName, null, false);
 
             if (method != null)
                 return Reflector.prepRet(method.ReturnType, method.Invoke(target, Array.Empty<object>()));
@@ -146,12 +152,12 @@ namespace clojure.lang
         /// <param name="methodName"></param>
         /// <param name="typeArgs"></param>
         /// <returns></returns>
-        public static MethodInfo GetMatchingMethod(IPersistentMap spanMap, Type targetType, IList<HostArg> args, string methodName, IList<Type> typeArgs)
+        public static MethodInfo GetMatchingMethod(IPersistentMap spanMap, Type targetType, IList<HostArg> args, string methodName, GenericTypeArgList typeArgs, bool getStatics)
         {
-            IList<MethodBase> methods = GetMethods(targetType, methodName, typeArgs, args.Count, true);
+            IList<MethodBase> methods = GetMethods(targetType, methodName, typeArgs, args.Count, getStatics);
 
-            MethodBase method = GetMatchingMethodAux(targetType, args, methods, methodName, true);
-            MaybeReflectionWarn(spanMap, targetType, true, methods.Count > 0,  method, methodName, args);
+            MethodBase method = GetMatchingMethodAux(targetType, args, methods, methodName, getStatics);
+            MaybeReflectionWarn(spanMap, targetType, getStatics, methods.Count > 0,  method, methodName, args);
             return (MethodInfo)method;
         }
 
@@ -164,7 +170,7 @@ namespace clojure.lang
         /// <param name="methodName"></param>
         /// <param name="typeArgs"></param>
         /// <returns></returns>
-        public static MethodInfo GetMatchingMethod(IPersistentMap spanMap, Expr target, IList<HostArg> args, string methodName, IList<Type> typeArgs)
+        public static MethodInfo GetMatchingMethod(IPersistentMap spanMap, Expr target, IList<HostArg> args, string methodName, GenericTypeArgList typeArgs)
         {
             MethodBase method = null;
             bool hasMethods = false;
@@ -190,7 +196,7 @@ namespace clojure.lang
         /// <param name="arity"></param>
         /// <param name="getStatics"></param>
         /// <returns></returns>
-        internal static IList<MethodBase> GetMethods(Type targetType, string methodName, IList<Type> typeArgs, int arity, bool getStatics)
+        internal static IList<MethodBase> GetMethods(Type targetType, string methodName, GenericTypeArgList typeArgs, int arity, bool getStatics)
         {
             BindingFlags flags = BindingFlags.Public | BindingFlags.FlattenHierarchy | BindingFlags.InvokeMethod;
             flags |= getStatics ? BindingFlags.Static : BindingFlags.Instance;
@@ -204,9 +210,10 @@ namespace clojure.lang
                 IEnumerable<MethodInfo> einfos
                     = targetType.GetMethods(flags).Where(info => info.Name == methodName && info.GetParameters().Length == arity);
                 infos = new List<MethodBase>();
+                var numTypeArgs = typeArgs.Count;
                 foreach (MethodInfo minfo in einfos)
-                    if (typeArgs != null && minfo.ContainsGenericParameters)
-                        infos.Add(minfo.MakeGenericMethod(typeArgs.ToArray<Type>()));
+                    if (!typeArgs.IsEmpty && minfo.ContainsGenericParameters && minfo.GetGenericArguments().Length == numTypeArgs)
+                        infos.Add(minfo.MakeGenericMethod(typeArgs.ToArray()));
                     else
                         infos.Add(minfo);
             }
@@ -214,7 +221,7 @@ namespace clojure.lang
         }
 
 
-        private static List<MethodBase> GetInterfaceMethods(Type targetType, string methodName, IList<Type> typeArgs, int arity)
+        private static List<MethodBase> GetInterfaceMethods(Type targetType, string methodName, GenericTypeArgList typeArgs, int arity)
         {
             BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.InvokeMethod;
 
@@ -231,10 +238,10 @@ namespace clojure.lang
                 IEnumerable<MethodInfo> einfo
                      = type.GetMethods(flags).Where(info => info.Name == methodName && info.GetParameters().Length == arity);
                 foreach (MethodInfo minfo in einfo)
-                    if (typeArgs == null && !minfo.ContainsGenericParameters)
+                    if (typeArgs.IsEmpty && !minfo.ContainsGenericParameters)
                         infos.Add(minfo);
-                    else if (typeArgs != null && minfo.ContainsGenericParameters)
-                        infos.Add(minfo.MakeGenericMethod(typeArgs.ToArray<Type>()));
+                    else if (!typeArgs.IsEmpty && minfo.ContainsGenericParameters)
+                        infos.Add(minfo.MakeGenericMethod(typeArgs.ToArray()));
             }
 
             return infos;
@@ -357,7 +364,7 @@ namespace clojure.lang
             return infos;
         }
 
-        private static void MaybeReflectionWarn(IPersistentMap spanMap, Type targetType, bool isStatic, bool hasMethods, MethodBase method, string methodName, IList<HostArg> args)
+        internal static void MaybeReflectionWarn(IPersistentMap spanMap, Type targetType, bool isStatic, bool hasMethods, MethodBase method, string methodName, IList<HostArg> args)
         {
             if (method == null && RT.booleanCast(RT.WarnOnReflectionVar.deref()))
             {
@@ -376,6 +383,7 @@ namespace clojure.lang
                     RT.errPrintWriter().WriteLine(string.Format("Reflection warning, {0}:{1}:{2} - call to {3}method {4} on {5} can't be resolved (no such method).",
                         Compiler.SourcePathVar.deref(), Compiler.GetLineFromSpanMap(spanMap), Compiler.GetColumnFromSpanMap(spanMap), (isStatic ? "static " : ""), methodName, targetType.FullName));
                 }
+                RT.errPrintWriter().Flush();
             }
         }
 
@@ -394,7 +402,7 @@ namespace clojure.lang
             return sb.ToString();
         }
 
-        public static MethodInfo GetArityZeroMethod(Type t, string name, bool getStatics)
+        public static MethodInfo GetArityZeroMethod(Type t, string name, GenericTypeArgList typeArgs, bool getStatics)
         {
             //BindingFlags flags = BindingFlags.Public | BindingFlags.FlattenHierarchy | BindingFlags.InvokeMethod;
             //if (getStatics)
@@ -407,7 +415,7 @@ namespace clojure.lang
             //IEnumerable<MethodInfo> einfo = t.GetMethods(flags).Where(mi => mi.Name == name && mi.GetParameters().Length == 0);
             //List<MethodInfo> infos = new List<MethodInfo>(einfo);
 
-            IList<MethodBase> infos = GetMethods(t, name, null, 0, getStatics);
+            IList<MethodBase> infos = GetMethods(t, name, typeArgs, 0, getStatics);
 
             if (infos.Count == 1)
                 return (MethodInfo)infos[0];
@@ -436,20 +444,26 @@ namespace clojure.lang
         #region Method calling during eval
 
 
-        public static object CallInstanceMethod(string methodName, IList<Type> typeArgs, object target, params object[] args)
+        public static object CallInstanceMethod(string methodName, GenericTypeArgList typeArgs, object target, params object[] args)
         {
             Type t = target.GetType();
             return CallMethod(methodName, typeArgs, false, t, target, args);
         }
 
-  
-        public static object CallStaticMethod(string methodName, IList<Type> typeArgs, Type t, params object[] args)
+
+        public static object CallInstanceMethod(Type type, string methodName, GenericTypeArgList typeArgs, object target, params object[] args)
+        {
+            return CallMethod(methodName, typeArgs, false, type, target, args);
+        }
+
+
+        public static object CallStaticMethod(string methodName, GenericTypeArgList typeArgs, Type t, params object[] args)
         {
             return CallMethod(methodName, typeArgs, true, t, null, args);
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Standard API")]
-        public static object CallMethod(string methodName, IList<Type> typeArgs, bool isStatic, Type t, object target, params object[] args)
+        public static object CallMethod(string methodName, GenericTypeArgList typeArgs, bool isStatic, Type t, object target, params object[] args)
         {
             Expression targetExpr = isStatic ? Expression.Constant(t, typeof(Type)) : Expression.Constant(target);
             List<Expression> exprs = new List<Expression>();
@@ -460,7 +474,7 @@ namespace clojure.lang
 
             CallSiteBinder binder = args.Length == 0 
                 ? (CallSiteBinder) new ClojureGetZeroArityMemberBinder(ClojureContext.Default, methodName, isStatic) 
-                : (CallSiteBinder) new ClojureInvokeMemberBinder(ClojureContext.Default, methodName, argExprs.Length, isStatic);
+                : (CallSiteBinder) new ClojureInvokeMemberBinder(ClojureContext.Default, methodName, argExprs.Length, typeArgs.ToArray(), isStatic);
 
             Expression dyn = Expression.Dynamic(binder, typeof(object), argExprs);
 
@@ -528,7 +542,7 @@ namespace clojure.lang
         {
             if (methodName.Equals("new"))
                 return InvokeConstructor(t, args);
-            IList<MethodBase> methods = GetMethods(t, methodName, null, args.Length, true);
+            IList<MethodBase> methods = GetMethods(t, methodName, GenericTypeArgList.Empty, args.Length, true);
             return InvokeMatchingMethod(methodName, methods, t, null, args);
         }
 
@@ -562,7 +576,7 @@ namespace clojure.lang
             }
 
             if (info == null)
-                throw new InvalidOperationException(string.Format("Cannot find static method named {0} for type: {1} with the correct argument type", methodName, t.Name));
+                throw new InvalidOperationException(string.Format("Cannot find {0|} method named {1} for type: {2} with the correct argument type", (t == null ? "instance" : "static"), methodName, t.Name));
 
             return InvokeMethod(info,target,args);
 

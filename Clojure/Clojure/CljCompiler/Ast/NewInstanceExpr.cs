@@ -8,16 +8,12 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler.Context;
+using Microsoft.Scripting.Generation;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Runtime.CompilerServices;
-using Microsoft.Scripting.Generation;
 
 namespace clojure.lang.CljCompiler.Ast
 {
@@ -170,7 +166,7 @@ namespace clojure.lang.CljCompiler.Ast
 
             ret._methodMap = overrideables;
 
-  
+#if NETFRAMEWORK
             GenContext context = Compiler.IsCompiling
                 ? Compiler.CompilerContextVar.get() as GenContext
                 : (ret.IsDefType
@@ -178,6 +174,15 @@ namespace clojure.lang.CljCompiler.Ast
                     : (Compiler.CompilerContextVar.get() as GenContext
                         ??
                         Compiler.EvalContext));
+#else
+            GenContext context = Compiler.IsCompiling
+                ? Compiler.CompilerContextVar.get() as GenContext
+                : (ret.IsDefType
+                    ? GenContext.CreateWithInternalAssembly("deftype" + RT.nextID().ToString(), true)
+                    : (Compiler.CompilerContextVar.get() as GenContext
+                        ??
+                        Compiler.EvalContext));
+#endif
 
             GenContext genC = context.WithNewDynInitHelper(ret.InternalName + "__dynInitHelper_" + RT.nextID().ToString());
 
@@ -298,6 +303,7 @@ namespace clojure.lang.CljCompiler.Ast
                 BaseClassAltCtorNoHash = GetConstructorWithArgCount(t, CtorTypes().Length - 2);
             }
 
+            Compiler.RegisterDuplicateType(t);
             return t;
         }
 
@@ -440,7 +446,7 @@ namespace clojure.lang.CljCompiler.Ast
         //    return t.FullName.Replace(',', '/');
         //}
 
-        #endregion
+#endregion
 
         #region Method reflection
 

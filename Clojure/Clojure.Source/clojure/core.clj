@@ -248,7 +248,7 @@
                               (if (clojure.lang.Util/equals nil (clojure.lang.CljCompiler.Ast.HostExpr/maybeSpecialTag tag))         ;;; clojure.lang.Compiler$HostExpr
                                 (let [c (clojure.lang.CljCompiler.Ast.HostExpr/MaybeType tag false)]                                 ;;; clojure.lang.Compiler$HostExpr  maybeClass
                                   (if c
-                                    (with-meta argvec (assoc m :tag (clojure.lang.Symbol/intern (.Name c))))                         ;;; .getName
+                                    (with-meta argvec (assoc m :tag (clojure.lang.Symbol/intern (.FullName c))))                         ;;; .getName
                                     argvec))
                                 argvec)
                               argvec)
@@ -317,7 +317,7 @@
               fdecl (if (map? (last fdecl))
                       (butlast fdecl)
                       fdecl)
-              m (conj {:arglists (list 'quote (sigs fdecl))} m)
+              m (conj {:arglists (list 'quote (sigs fdecl))} m)  
               m (let [inline (:inline m)
                       ifn (first inline)
                       iname (second inline)]
@@ -350,7 +350,7 @@
   {:added "1.0"
    :static true}
   [^Type c x]   ;;; changed Class to Type
-   (if (clojure.lang.Util/identical x nil) nil (if (. c (IsInstanceOfType x)) x (throw  (InvalidCastException. (.ToString (.GetType x)))))))  ;;;  original (. c (cast x)))     
+   (if (clojure.lang.Util/identical x nil) nil (if (. c (IsInstanceOfType x)) x (throw  (InvalidCastException. (.ToString (.GetType ^Object x)))))))  ;;;  original (. c (cast x)))  ;; Added ^Object   
  
 (defn vector
   "Creates a new vector containing the args."
@@ -1134,6 +1134,18 @@
   ([x y & more]
    (reduce1 min (min x y) more)))
 
+(defn abs
+  {:doc "Returns the absolute value of a.
+  If a is Long/MIN_VALUE => Long/MIN_VALUE
+  If a is a double and zero => +0.0
+  If a is a double and ##Inf or ##-Inf => ##Inf
+  If a is a double and ##NaN => ##NaN"
+   :inline-arities #{1}
+   :inline (fn [a] `(clojure.lang.Numbers/abs ~a))
+   :added "1.11"}
+  [a]
+  (clojure.lang.Numbers/abs a))
+
 (defn dec'
   "Returns a number one less than num.  Supports arbitrary precision.
   See also: dec"
@@ -1369,9 +1381,9 @@
 
 (defn unsigned-bit-shift-right
   "Bitwise shift right, without sign-extension."
-  {:inline (fn [x n] `(. clojure.lang.Numbers (unsignedShiftRight ~x ~n)))
+  {:inline (fn [x n] `(. clojure.lang.Numbers (unsignedShiftRight ^Object ~x ^Object ~n)))   ;;; Added type hints
    :added "1.6"}
-  [x n] (. clojure.lang.Numbers unsignedShiftRight x n))
+  [x n] (. clojure.lang.Numbers unsignedShiftRight ^Object x ^Object n))                     ;;; Added type hints
 
  (defn integer?
   "Returns true if n is an integer"
@@ -1381,7 +1393,7 @@
   (or (instance? Int32 n)      (instance? UInt32 n)     ;;; Integer -> Int32, added UInt32
       (instance? Int64 n)      (instance? UInt64 n)     ;;; Long -> Int64, added UInt64
 	  (instance? clojure.lang.BigInt n)
-      (instance? BigInteger n) (instance? Char n)       ;;; added Char test
+      (instance? BigInteger n)
       (instance? Int16 n)      (instance? UInt16 n)     ;;; Short -> Int16, added UInt16
       (instance? Byte n)  (instance? SByte n)))         ;;; Added SByte test
 
@@ -1494,7 +1506,8 @@
  [coll key] (. clojure.lang.RT (contains coll key)))
 
 (defn get
-  "Returns the value mapped to key, not-found or nil if key not present."
+  "Returns the value mapped to key, not-found or nil if key not present
+  in associative collection, set, string, array, or ILookup instance."
   {:inline (fn  [m k & nf] `(. clojure.lang.RT (get ~m ~k ~@nf)))
    :inline-arities #{2 3}
    :added "1.0"}
@@ -1802,7 +1815,7 @@
   {:added "1.0"
    :static true}
  [multifn dispatch-val]
- (. multifn removeMethod dispatch-val))
+ (. ^clojure.lang.MultiFn multifn removeMethod dispatch-val))                          ;;; Added type hint
 
 (defn prefer-method
   "Causes the multimethod to prefer matches of dispatch-val-x over dispatch-val-y 
@@ -1810,7 +1823,7 @@
   {:added "1.0"
    :static true}
   [multifn dispatch-val-x dispatch-val-y]
-  (. multifn preferMethod dispatch-val-x dispatch-val-y))
+  (. ^clojure.lang.MultiFn multifn preferMethod dispatch-val-x dispatch-val-y))         ;;; Added type hint
 
 (defn methods
   "Given a multimethod, returns a map of dispatch values -> dispatch fns"
@@ -2476,7 +2489,7 @@
   {:added "1.1"
    :static true}
  ([^clojure.lang.Ref ref]
-   (.getMinHistory ref))
+   (.get_MinHistory ref))                                              ;;; .getMinHistory
  ([^clojure.lang.Ref ref n]
    (.setMinHistory ref n)))
 
@@ -2485,7 +2498,7 @@
   {:added "1.1"
    :static true}
  ([^clojure.lang.Ref ref]
-   (.getMaxHistory ref))
+   (.get_MaxHistory ref))                                              ;;; .getMaxHistory
  ([^clojure.lang.Ref ref n]
    (.setMaxHistory ref n)))
 
@@ -2911,7 +2924,7 @@
           (cons (first s) (take-while pred (rest s))))))))
 
 (defn drop
-  "Returns a lazy sequence of all but the first n items in coll.
+  "Returns a laziness-preserving sequence of all but the first n items in coll.
   Returns a stateful transducer when no collection is provided."
   {:added "1.0"
    :static true}
@@ -2928,12 +2941,18 @@
                   result
                   (rf result input))))))))
   ([n coll]
-     (let [step (fn [n coll]
-                  (let [s (seq coll)]
-                    (if (and (pos? n) s)
-                      (recur (dec n) (rest s))
-                      s)))]
-       (lazy-seq (step n coll)))))
+     (if (instance? clojure.lang.IDrop coll)
+       (or
+        (if (pos? n)
+          (.drop ^clojure.lang.IDrop coll (if (int? n) n (Math/Ceiling (. clojure.lang.RT (doubleCast n)))))     ;;; Math/ceil -- added doubleCast
+          (seq coll))
+        ())
+       (let [step (fn [n coll]
+                    (let [s (seq coll)]
+                      (if (and (pos? n) s)
+                        (recur (dec n) (rest s))
+                        s)))]
+         (lazy-seq (step n coll))))))
 
 (defn drop-last
   "Return a lazy sequence of all but the last n (default 1) items in coll"
@@ -3015,7 +3034,8 @@
   [n x] (take n (repeat x)))
 
 (defn iterate
-  "Returns a lazy sequence of x, (f x), (f (f x)) etc. f must be free of side-effects"
+  "Returns a lazy sequence of x, (f x), (f (f x)) etc. 
+  f must be free of side-effects"
   {:added "1.0"
    :static true}
   [f x] (clojure.lang.Iterate/create f x) )
@@ -3030,15 +3050,15 @@
   ([]
    (iterate inc' 0))
   ([end]
-   (if (instance? Int64 end)                                                             ;;; Long
+   (if (int? end)
      (clojure.lang.LongRange/create end)
      (clojure.lang.Range/create end)))
   ([start end]
-   (if (and (instance? Int64 start) (instance? Int64 end))                               ;;; Long Long
+   (if (and (int? start) (int? end))
      (clojure.lang.LongRange/create start end)
      (clojure.lang.Range/create start end)))
   ([start end step]
-   (if (and (instance? Int64 start) (instance? Int64 end) (instance? Int64 step))        ;;; Long Long Long
+   (if (and (int? start) (int? end) (int? step))
      (clojure.lang.LongRange/create start end step)
      (clojure.lang.Range/create start end step))))
 
@@ -3154,20 +3174,30 @@
   {:added "1.0"
    :static true}
   [coll n]
+  (if (instance? clojure.lang.IDrop coll)
+    (if (pos? n)
+          (.drop ^clojure.lang.IDrop coll (if (int? n) n (Math/Ceiling (. clojure.lang.RT (doubleCast n)))))     ;;; Math/ceil -- added doubleCast
+      (seq coll))
     (loop [n n xs (seq coll)]
       (if (and xs (pos? n))
         (recur (dec n) (next xs))
-        xs)))
+        xs))))
 
 (defn nthrest
   "Returns the nth rest of coll, coll when n is 0."
   {:added "1.3"
    :static true}
   [coll n]
-    (loop [n n xs coll]
-      (if-let [xs (and (pos? n) (seq xs))]
-        (recur (dec n) (rest xs))
-        xs)))
+  (if (pos? n)
+    (or
+      (if (instance? clojure.lang.IDrop coll)
+        (.drop ^clojure.lang.IDrop coll (if (int? n) n (Math/Ceiling (. clojure.lang.RT (doubleCast n)))))     ;;; Math/ceil -- added doubleCast
+        (loop [n n xs coll]
+          (if-let [xs (and (pos? n) (seq xs))]
+            (recur (dec n) (rest xs))
+            (seq xs))))
+      ())
+    coll))
 
 (defn partition
   "Returns a lazy sequence of lists of n items each, at offsets step
@@ -3328,7 +3358,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;; editable collections ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn transient 
-  "Returns a new, transient version of the collection, in constant time."
+"Returns a new, transient version of the collection, in constant time.
+
+  Transients support a parallel set of 'changing' operations, with similar names
+  followed by ! - assoc!, conj! etc. These do the same things as their persistent
+  counterparts except the return values are themselves transient.
+
+  Note in particular that transients are not designed to be bashed in-place. You
+  must capture and use the return value in the next call. In this way, they support
+  the same code structure as the functional persistent code they replace."
   {:added "1.1"
    :static true}
   [^clojure.lang.IEditableCollection coll] 
@@ -3644,7 +3682,7 @@
        (instance? clojure.lang.BigInt x) (.ToBigDecimal ^clojure.lang.BigInt x)           ;;; .ToBigDecimal
        (instance? BigInteger x) (BigDecimal/Create ^BigInteger x)                         ;;; (BigDecimal. ^BigInteger x)
        (number? x) (BigDecimal/Create (long x))                                           ;;; (BigDecimal/valueOf (long x))
-       :else  (BigDecimal/Create x)))                                                     ;;; (BigDecimal. x)))
+       :else  (BigDecimal/Create x)))                                                     ;;; (BigDecimal. x)))         -- will get a reflection warning -- we just have to wing it here.
 	   
 (def ^:dynamic ^{:private true} print-initialized false)
 
@@ -3680,7 +3718,7 @@
      (apply pr more))))
    
 (def ^:private ^String system-newline
-     (Environment/NewLine))                        ;;; (System/getProperty "line.separator")
+     Environment/NewLine)                        ;;; (System/getProperty "line.separator")
 
 (defn newline
   "Writes a platform-specific newline to *out*"
@@ -3900,25 +3938,25 @@ Note that read can execute code (controlled by *read-eval*),
 (defn aget
   "Returns the value at the index/indices. Works on Java arrays of all
   types."
-  {:inline (fn [a i] `(. clojure.lang.RT (aget ~a (int ~i))))
+  {:inline (fn [a i] `(. clojure.lang.RT (agetOnArray ~a (int ~i))))
    :inline-arities #{2}
    :added "1.0"}
   ([array idx]
-   (clojure.lang.Reflector/prepRet (.GetElementType (class array)) (. array (GetValue idx))))  ;;; was .getComponentType (. Array (get array idx)))  
+   (clojure.lang.Reflector/prepRet (.GetElementType (class array)) (. ^System.Array array (GetValue ^int idx))))  ;;; was .getComponentType (. Array (get array idx)))  
   ([array idx & idxs]
    (apply aget (aget array idx) idxs)))
 
 (defn aset
   "Sets the value at the index/indices. Works on Java arrays of
   reference types. Returns val."
-  {:inline (fn [a i v] `(. clojure.lang.RT (aset ~a (int ~i) ~v)))
+  {:inline (fn [^System.Array a i v] `(. clojure.lang.RT (aset ~a (int ~i) ~v)))
    :inline-arities #{3}
    :added "1.0"}
   ([array idx val]
-   (. array (SetValue val idx))  ;;; was     (. Array (set array idx val))
+   (. ^System.Array array (SetValue val (int idx)))  ;;; was     (. Array (set array idx val))
    val)
   ([array idx idx2 & idxv]
-   (apply aset (aget array idx) idx2 idxv)))
+   (apply aset (aget ^System.Array array idx) idx2 idxv)))
 
 (defmacro
   ^{:private true}
@@ -3996,7 +4034,7 @@ Note that read can execute code (controlled by *read-eval*),
    :added "1.0"
    :static true}
   [^System.Collections.ICollection coll]                                              ;;; ^java.util.Collection
-    (let [ret  (make-array Object (.Count coll))]      ;;; NEED BETTER TYPING HERE (make-array (. Class (forName "[Ljava.lang.Object;")) (. coll (size)))]
+    (let [^|System.Object[]| ret  (make-array Object (.Count coll))]      ;;; (make-array (. Class (forName "[Ljava.lang.Object;")) (. coll (size)))]  -- added type hint
       (loop [i 0 xs (seq coll)]
         (when xs
           (aset ret i (to-array (first xs)))
@@ -4180,7 +4218,7 @@ Note that read can execute code (controlled by *read-eval*),
    :static true}
   [ns]
   (let [ns (the-ns ns)]
-    (filter-key val (fn [ v] (and (instance? clojure.lang.Var v)    ;;;  removed the tag on v:  ^clojure.lang.Var
+    (filter-key val (fn [^clojure.lang.Var v] (and (instance? clojure.lang.Var v)
                                  (= ns (.ns v))
                                  (.isPublic v)))
                 (ns-map ns))))
@@ -4371,7 +4409,19 @@ Note that read can execute code (controlled by *read-eval*),
    :static true}
   ([] (. clojure.lang.PersistentArrayMap EMPTY))
   ([& keyvals] 
-     (clojure.lang.PersistentArrayMap/createAsIfByAssoc (to-array keyvals))))
+     (let [ary (to-array keyvals)]
+       (if (odd? (alength ary))
+         (throw (ArgumentException. (str "No value supplied for key: " (last keyvals))))   ;;; IllegalArgumentException
+         (clojure.lang.PersistentArrayMap/createAsIfByAssoc ary)))))
+
+(defn seq-to-map-for-destructuring
+  "Builds a map from a seq as described in
+  https://clojure.org/reference/special_forms#keyword-arguments"
+  {:added "1.11"}
+  [s]
+  (if (next s)
+    (clojure.lang.PersistentArrayMap/createAsIfByAssoc (to-array s))
+    (if (seq s) (first s) clojure.lang.PersistentArrayMap/EMPTY)))
 
 ;;redefine let and loop  with destructuring
 (defn destructure [bindings]
@@ -4419,7 +4469,11 @@ Note that read can execute code (controlled by *read-eval*),
                            gmapseq (with-meta gmap {:tag 'clojure.lang.ISeq})
                            defaults (:or b)]
                        (loop [ret (-> bvec (conj gmap) (conj v)
-                                      (conj gmap) (conj `(if (seq? ~gmap) (clojure.lang.PersistentHashMap/create (seq ~gmapseq)) ~gmap))
+                                      (conj gmap) (conj `(if (seq? ~gmap)
+                                                           (if (next ~gmapseq)
+                                                             (clojure.lang.PersistentArrayMap/createAsIfByAssoc (to-array ~gmapseq))
+                                                             (if (seq ~gmapseq) (first ~gmapseq) clojure.lang.PersistentArrayMap/EMPTY))
+                                                           ~gmap))
                                       ((fn [ret]
                                          (if (:as b)
                                            (conj ret (:as b) gmap)
@@ -4468,10 +4522,15 @@ Note that read can execute code (controlled by *read-eval*),
 
 (defmacro let
   "binding => binding-form init-expr
+  binding-form => name, or destructuring-form
+  destructuring-form => map-destructure-form, or seq-destructure-form
 
   Evaluates the exprs in a lexical context in which the symbols in
   the binding-forms are bound to their respective init-exprs or parts
-  therein."
+  therein.
+
+  See https://clojure.org/reference/special_forms#binding-forms for
+  more information about destructuring."
   {:added "1.0", :special-form true, :forms '[(let [bindings*] exprs*)]}
   [bindings & body]
   (assert-args
@@ -4499,12 +4558,14 @@ Note that read can execute code (controlled by *read-eval*),
 
 ;redefine fn with destructuring and pre/post conditions
 (defmacro fn
-  "params => positional-params* , or positional-params* & next-param
+  "params => positional-params*, or positional-params* & rest-param
   positional-param => binding-form
-  next-param => binding-form
-  name => symbol
+  rest-param => binding-form
+  binding-form => name, or destructuring-form
 
-  Defines a function"
+  Defines a function.
+
+  See https://clojure.org/reference/special_forms#fn for more information"
   {:added "1.0", :special-form true,
    :forms '[(fn name? [params* ] exprs*) (fn name? ([params* ] exprs*)+)]}
   [& sigs]
@@ -4773,7 +4834,7 @@ Note that read can execute code (controlled by *read-eval*),
    that carries a map of additional data."
   {:added "1.4"}
   ([msg map]
-    (elide-top-frames (ExceptionInfo. msg map) "clojure.core$ex_info"))
+    (elide-top-frames (ExceptionInfo. ^String msg ^clojure.lang.IPersistentMap map) "clojure.core$ex_info"))   ;;; Added type hints -- conflicting overload on 2 args
   ([msg map cause]
     (elide-top-frames (ExceptionInfo. msg map cause) "clojure.core$ex_info")))
 
@@ -4803,8 +4864,11 @@ Note that read can execute code (controlled by *read-eval*),
     (.InnerException ^Exception ex)))                              ;;; .getCause Throwable
 
 (defmacro assert
-  "Evaluates expr and throws an exception if it does not evaluate to
-  logical true."
+  "Evaluates expression x and throws an AssertionError with optional
+  message if x does not evaluate to logical true.
+
+  Assertion checks are omitted from compiled code if '*assert*' is
+  false."
   {:added "1.0"}
   ([x]
      (when *assert*
@@ -5093,7 +5157,7 @@ Note that read can execute code (controlled by *read-eval*),
   {:private true}
   [^clojure.lang.Sorted sc test key]
   (fn [e]
-    (test (.. sc comparator (compare (. sc entryKey e) key)) 0)))
+    (test (.. sc comparator (Compare (. sc entryKey e) key)) 0)))                                 ;;; compare
 
 (defn subseq
   "sc must be a sorted collection, test(s) one of <, <=, > or
@@ -5922,13 +5986,15 @@ Note that read can execute code (controlled by *read-eval*),
             (name lib) prefix)
   (let [lib (if prefix (symbol (str prefix \. lib)) lib)
         opts (apply hash-map options)
-        {:keys [as reload reload-all require use verbose]} opts
+        {:keys [as reload reload-all require use verbose as-alias]} opts
         loaded (contains? @*loaded-libs* lib)
-        load (cond reload-all
-                   load-all
-                   (or reload (not require) (not loaded))
-                   load-one)
         need-ns (or as use)
+        load (cond reload-all load-all
+                   reload load-one
+                   (not loaded) (cond need-ns load-one
+                                      as-alias (fn [lib _need _require] (create-ns lib))
+                                      :else load-one))
+
         filter-opts (select-keys opts '(:exclude :only :rename :refer))
         undefined-on-entry (not (find-ns lib))]
     (binding [*loading-verbosely* (or *loading-verbosely* verbose)]
@@ -5940,13 +6006,17 @@ Note that read can execute code (controlled by *read-eval*),
               (remove-ns lib))
             (throw e)))
         (throw-if (and need-ns (not (find-ns lib)))
-                  "namespace '%s' not found" lib))
+          "namespace '%s' not found" lib))
       (when (and need-ns *loading-verbosely*)
         (printf "(clojure.core/in-ns '%s)\n" (ns-name *ns*)))
       (when as
         (when *loading-verbosely*
           (printf "(clojure.core/alias '%s '%s)\n" as lib))
         (alias as lib))
+      (when as-alias
+        (when *loading-verbosely*
+          (printf "(clojure.core/alias '%s '%s)\n" as-alias lib))
+        (alias as-alias lib))
       (when (or use (:refer filter-opts))
         (when *loading-verbosely*
           (printf "(clojure.core/refer '%s" lib)
@@ -5963,7 +6033,7 @@ Note that read can execute code (controlled by *read-eval*),
         opts (interleave flags (repeat true))
         args (filter (complement keyword?) args)]
     ; check for unsupported options
-    (let [supported #{:as :reload :reload-all :require :use :verbose :refer} 
+    (let [supported #{:as :reload :reload-all :require :use :verbose :refer :as-alias}
           unsupported (seq (remove supported flags))]
       (throw-if unsupported
                 (apply str "Unsupported option(s) supplied: "
@@ -6027,6 +6097,9 @@ Note that read can execute code (controlled by *read-eval*),
   Recognized options:
   :as takes a symbol as its argument and makes that symbol an alias to the
     lib's namespace in the current namespace.
+  :as-alias takes a symbol as its argument and aliases like :as, however
+    the lib will not be loaded. If the lib has not been loaded, a new
+    empty namespace will be created (as with create-ns).
   :refer takes a list of symbols to refer from the namespace or the :all
     keyword to bring in all public vars.
 
@@ -6043,9 +6116,10 @@ Note that read can execute code (controlled by *read-eval*),
   A flag is a keyword.
   Recognized flags: :reload, :reload-all, :verbose
   :reload forces loading of all the identified libs even if they are
-    already loaded
+    already loaded (has no effect on libspecs using :as-alias)
   :reload-all implies :reload and also forces loading of all libs that the
     identified libs directly or indirectly load via require or use
+    (has no effect on libspecs using :as-alias)
   :verbose triggers printing information about each load, alias, and refer
 
   Example:
@@ -6192,13 +6266,6 @@ fails, attempts to require sym's namespace and retries."
   ([m k f x y z & more]
    (assoc m k (apply f (get m k) x y z more))))
 
-(defn empty?
-  "Returns true if coll has no items - same as (not (seq coll)).
-  Please use the idiom (seq x) rather than (not (empty? x))"
-  {:added "1.0"
-   :static true}
-  [coll] (not (seq coll)))
-
 (defn coll?
   "Returns true if x implements IPersistentCollection"
   {:added "1.0"
@@ -6254,7 +6321,17 @@ fails, attempts to require sym's namespace and retries."
    :static true}
   [coll] (instance? clojure.lang.Counted coll))
 
-(defn reversible?
+(defn empty?
+  "Returns true if coll has no items. To check the emptiness of a seq,
+  please use the idiom (seq x) rather than (not (empty? x))"
+  {:added "1.0"
+   :static true}
+  [coll]
+  (if (counted? coll)
+    (zero? (count coll))
+    (not (seq coll))))
+  
+  (defn reversible?
  "Returns true if coll implements Reversible"
   {:added "1.0"
    :static true}
@@ -6284,6 +6361,11 @@ fails, attempts to require sym's namespace and retries."
  ^{:doc "bound in a repl thread to the most recent exception caught by the repl"
    :added "1.0"}
  *e)
+
+(def ^:dynamic
+  ^{:doc "Bound to true in a repl thread"
+    :added "1.12"}
+  *repl* false)
 
 (defn trampoline
   "trampoline can be used to convert algorithms requiring mutual
@@ -6438,7 +6520,10 @@ fails, attempts to require sym's namespace and retries."
   Supported options:
   :elide-meta - a collection of metadata keys to elide during compilation.
   :disable-locals-clearing - set to true to disable clearing, useful for using a debugger
-  Alpha, subject to change."
+  :direct-linking - set to true to use direct static invocation of functions, rather than vars
+    Note that call sites compiled with direct linking will not be affected by var redefinition.
+    Use ^:redef (or ^:dynamic) on a var to prevent direct linking and allow redefinition.
+  See https://clojure.org/reference/compilation for more information."
   {:added "1.4"})
 
 (add-doc-and-meta *ns*
@@ -6514,6 +6599,11 @@ fails, attempts to require sym's namespace and retries."
   occur in considered contexts. You can also accomplish this in a
   particular scope by binding *read-eval* to :unknown
   "
+  {:added "1.0"})
+
+(add-doc-and-meta *assert*
+  "When set to logical false, 'assert' will omit assertion checks in
+  compiled code. Defaults to true."
   {:added "1.0"})
 
 (defn future?
@@ -6652,7 +6742,7 @@ fails, attempts to require sym's namespace and retries."
                       (next ks) (next vs))
                     m))
         assoc-multi (fn [m h bucket]
-                      (let [testexprs (apply concat bucket)
+                      (let [testexprs (mapcat (fn [kv] [(list 'quote (first kv)) (second kv)]) bucket)
                             expr `(condp = ~expr-sym ~@testexprs ~default)]
                         (assoc m h expr)))
         hmap (reduce1
@@ -6695,9 +6785,6 @@ fails, attempts to require sym's namespace and retries."
                          (into1 #{} (map #(shift-mask shift mask %) skip-check)))]
         [shift mask case-map switch-type skip-check]))))
 
-(defn case-fallthrough-err-impl
-  [val]
-  (ArgumentException. (str "No matching clause: " (pr-str val))))                            ;;; IllegalArgumentException.
 
 (defmacro case 
   "Takes an expression, and a set of clauses.
@@ -6728,7 +6815,7 @@ fails, attempts to require sym's namespace and retries."
   (let [ge (with-meta (gensym) {:tag Object})
         default (if (odd? (count clauses)) 
                   (last clauses)
-                  `(throw (case-fallthrough-err-impl ~ge)))]
+                  `(throw (ArgumentException. (str "No matching clause: " ~ge))))]                      ;;; IllegalArgumentException
     (if (> 2 (count clauses))
       `(let [~ge ~e] ~default)
       (let [pairs (partition 2 clauses)
@@ -6762,8 +6849,6 @@ fails, attempts to require sym's namespace and retries."
             `(let [~ge ~e] (case* ~ge ~shift ~mask ~default ~imap ~switch-type :hash-identity ~skip-check))))))))
 
 
-;; redefine reduce with internal-reduce
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; helper files ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (alter-meta! (find-ns 'clojure.core) assoc :doc "Fundamental library of the Clojure language") (load "core_clr")  ;;; Added
 (load "core_proxy")
@@ -6772,6 +6857,45 @@ fails, attempts to require sym's namespace and retries."
 (load "core_deftype")
 (load "core/protocols")
 (load "gvec")
+
+(defn stream-reduce!
+  "Works like reduce but takes a java.util.stream.BaseStream as its source.
+  Honors 'reduced', is a terminal operation on the stream"
+  {:added "1.12"}
+  ([f ^System.Collections.IEnumerable s]                                                         ;;; ^java.util.stream.BaseStream
+   (clojure.core.protocols/iterator-reduce! (.GetEnumerator s) f))                               ;;; .iterator
+  ([f init ^System.Collections.IEnumerable s]                                                    ;;; ^java.util.stream.BaseStream
+   (clojure.core.protocols/iterator-reduce! (.GetEnumerator s) f init)))                         ;;; .iterator
+
+(defn stream-seq!
+  "Takes a java.util.stream.BaseStream instance s and returns a seq of its
+  contents. This is a terminal operation on the stream."
+  {:added "1.12"}
+  [^System.Collections.IEnumerable stream]                                                       ;;; ^java.util.stream.BaseStream
+  (iterator-seq (.GetEnumerator stream)))                                                        ;;; .iterator
+
+(defn stream-transduce!
+  "Works like transduce but takes a java.util.stream.BaseStream as its source.
+  This is a terminal operation on the stream."
+  {:added "1.12"}
+  ([xform f ^System.Collections.IEnumerable stream] (stream-transduce! xform f (f) stream))      ;;; ^java.util.stream.BaseStream
+  ([xform f init ^System.Collections.IEnumerable stream]                                         ;;; ^java.util.stream.BaseStream
+   (let [f (xform f)
+         ret (stream-reduce! f init stream)]
+     (f ret))))
+
+(defn stream-into!
+  "Returns a new coll consisting of coll with all of the items of the
+  stream conjoined. This is a terminal operation on the stream."
+  {:added "1.12"}
+  ([to ^System.Collections.IEnumerable stream]                                                    ;;; ^java.util.stream.BaseStream
+   (if (instance? clojure.lang.IEditableCollection to)
+     (with-meta (persistent! (stream-reduce! conj! (transient to) stream)) (meta to))
+     (stream-reduce! conj to stream)))
+  ([to xform ^System.Collections.IEnumerable stream]                ;;; ^java.util.stream.BaseStream
+   (if (instance? clojure.lang.IEditableCollection to)
+     (with-meta (persistent! (stream-transduce! xform conj! (transient to) stream)) (meta to))
+     (stream-transduce! xform conj to stream))))
 
 (defmacro ^:private when-class [class-name & body]
   `(try
@@ -6812,6 +6936,14 @@ fails, attempts to require sym's namespace and retries."
   {:added "1.9"}
   [x] (instance? System.Guid x))                                                               ;;; java.util.UUID
   
+(defn random-uuid
+  {:doc "Returns a pseudo-randomly generated java.util.UUID instance (i.e. type 4).
+
+  See: https://docs.oracle.com/javase/8/docs/api/java/util/UUID.html#randomUUID--"
+   :added "1.11"}
+  ^System.Guid [] (System.Guid/NewGuid))                                                       ;;; ^java.util.UUID  java.util.UUID/randomUUID
+
+;; redefine reduce with internal-reduce
 (defn reduce
   "f should be a function of 2 arguments. If val is not supplied,
   returns the result of applying f to the first 2 items in coll, then
@@ -6839,13 +6971,18 @@ fails, attempts to require sym's namespace and retries."
   init)
 
  ;;slow path default
- clojure.lang.IPersistentMap
- (kv-reduce 
+ System.Object
+ (kv-reduce
   [amap f init]
-  (reduce (fn [ret [k v]] (f ret k v)) init amap))
+  (reduce (fn [ret ^clojure.lang.IMapEntry me]        ;;; ^java.util.Map$Entry  -- THe problem here is that we don't have an equivalent to java.util.Map$Entry.  We will settle on IMapEntry
+            (f ret
+               (.key me)                              ;;; .getKey
+               (.val me)))                          ;;; .getValue
+          init
+          amap))
 
 clojure.lang.IKVReduce
- (kv-reduce 
+ (kv-reduce
   [amap f init]
   (.kvreduce amap f init)))
 
@@ -6890,8 +7027,9 @@ clojure.lang.IKVReduce
        (f ret))))
 
 (defn into
-  "Returns a new coll consisting of to-coll with all of the items of
-  from-coll conjoined. A transducer may be supplied."
+  "Returns a new coll consisting of to with all of the items of
+  from conjoined. A transducer may be supplied.
+  (into x) returns x. (into) returns []."
   {:added "1.0"
    :static true}
   ([] [])
@@ -6902,7 +7040,11 @@ clojure.lang.IKVReduce
        (reduce conj to from)))
   ([to xform from]
      (if (instance? clojure.lang.IEditableCollection to)
-       (with-meta (persistent! (transduce xform conj! (transient to) from)) (meta to))
+       (let [tm (meta to)
+             rf (fn
+                  ([coll] (-> (persistent! coll) (with-meta tm)))
+                  ([coll v] (conj! coll v)))]
+         (transduce xform rf (transient to) from))
        (transduce xform conj to from))))
 
 (defn mapv
@@ -6938,7 +7080,7 @@ clojure.lang.IKVReduce
 
 (defn- normalize-slurp-opts
   [opts]
-  (if (not (keyword? (first opts)))                                              ;;; (string? (first opts))
+  (if (string? (first opts))
     (do
       (println "WARNING: (slurp f enc) is deprecated, use (slurp f :encoding enc).")
       [:encoding (first opts)])
@@ -7057,7 +7199,8 @@ clojure.lang.IKVReduce
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; clojure version number ;;;;;;;;;;;;;;;;;;;;;;
 ;;; THIS EXPOSES WAY TOO MUCH JVM INTERNALS!
-(let [properties (. clojure.lang.RT GetVersionProperties)                   ;;; properties (with-open [version-stream (.getResourceAsStream 
+(let [^clojure.runtime.Properties 
+      properties (. clojure.lang.RT GetVersionProperties)                   ;;; properties (with-open [version-stream (.getResourceAsStream 
                                                                             ;;;                                          (clojure.lang.RT/baseLoader) 
                                                                             ;;;                                          "clojure/version.properties")]
                                                                             ;;;               (doto (new java.util.Properties) 
@@ -7276,6 +7419,50 @@ clojure.lang.IKVReduce
         (let [seg (doall (take n s))]
           (cons seg (partition-all n step (nthrest s step))))))))
 
+(defn splitv-at
+  "Returns a vector of [(into [] (take n) coll) (drop n coll)]"
+  {:added "1.12"}
+  [n coll]
+  [(into [] (take n) coll) (drop n coll)])
+
+(defn partitionv
+  "Returns a lazy sequence of vectors of n items each, at offsets step
+  apart. If step is not supplied, defaults to n, i.e. the partitions
+  do not overlap. If a pad collection is supplied, use its elements as
+  necessary to complete last partition upto n items. In case there are
+  not enough padding elements, return a partition with less than n items."
+  {:added "1.12"}
+  ([n coll]
+   (partitionv n n coll))
+  ([n step coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [p (into [] (take n) s)]
+         (when (= n (count p))
+           (cons p (partitionv n step (nthrest s step))))))))
+  ([n step pad coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [p (into [] (take n) s)]
+         (if (= n (count p))
+           (cons p (partitionv n step pad (nthrest s step)))
+           (list (into [] (take n) (concat p pad)))))))))
+
+(defn partitionv-all
+  "Returns a lazy sequence of vector partitions, but may include
+  partitions with fewer than n items at the end.
+  Returns a stateful transducer when no collection is provided."
+  {:added "1.12"}
+  ([n]
+   (partition-all n))
+  ([n coll]
+   (partitionv-all n n coll))
+  ([n step coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [seg (into [] (take n) coll)]
+         (cons seg (partitionv-all n step (drop step s))))))))
+
 (defn shuffle
   "Return a random permutation of coll"
   {:added "1.1"
@@ -7424,8 +7611,8 @@ clojure.lang.IKVReduce
      (fn ep3
        ([] true)
        ([x] (boolean (and (p1 x) (p2 x) (p3 x))))
-       ([x y] (boolean (and (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y))))
-       ([x y z] (boolean (and (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y) (p1 z) (p2 z) (p3 z))))
+       ([x y] (boolean (and (p1 x) (p1 y) (p2 x) (p2 y) (p3 x) (p3 y))))
+       ([x y z] (boolean (and (p1 x) (p1 y) (p1 z) (p2 x) (p2 y) (p2 z) (p3 x) (p3 y) (p3 z))))
        ([x y z & args] (boolean (and (ep3 x y z)
                                      (every? #(and (p1 %) (p2 %) (p3 %)) args))))))
   ([p1 p2 p3 & ps]
@@ -7464,8 +7651,8 @@ clojure.lang.IKVReduce
      (fn sp3
        ([] nil)
        ([x] (or (p1 x) (p2 x) (p3 x)))
-       ([x y] (or (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y)))
-       ([x y z] (or (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y) (p1 z) (p2 z) (p3 z)))
+       ([x y] (or (p1 x) (p1 y) (p2 x) (p2 y) (p3 x) (p3 y)))
+       ([x y z] (or (p1 x) (p1 y) (p1 z) (p2 x) (p2 y) (p2 z) (p3 x) (p3 y) (p3 z)))
        ([x y z & args] (or (sp3 x y z)
                            (some #(or (p1 %) (p2 %) (p3 %)) args)))))
   ([p1 p2 p3 & ps]
@@ -7720,6 +7907,52 @@ clojure.lang.IKVReduce
   (reduce #(proc %2) nil coll)
   nil)
 
+  (defn iteration
+   "Creates a seqable/reducible via repeated calls to step,
+  a function of some (continuation token) 'k'. The first call to step
+  will be passed initk, returning 'ret'. Iff (somef ret) is true,
+  (vf ret) will be included in the iteration, else iteration will
+  terminate and vf/kf will not be called. If (kf ret) is non-nil it
+  will be passed to the next step call, else iteration will terminate.
+
+  This can be used e.g. to consume APIs that return paginated or batched data.
+
+   step - (possibly impure) fn of 'k' -> 'ret'
+
+   :somef - fn of 'ret' -> logical true/false, default 'some?'
+   :vf - fn of 'ret' -> 'v', a value produced by the iteration, default 'identity'
+   :kf - fn of 'ret' -> 'next-k' or nil (signaling 'do not continue'), default 'identity'
+   :initk - the first value passed to step, default 'nil'
+
+  It is presumed that step with non-initk is unreproducible/non-idempotent.
+  If step with initk is unreproducible it is on the consumer to not consume twice."
+  {:added "1.11"}
+  [step & {:keys [somef vf kf initk]
+            :or {vf identity
+                 kf identity
+                 somef some?
+                 initk nil}}]
+  (reify
+   clojure.lang.Seqable
+   (seq [_]
+        ((fn next [ret]
+           (when (somef ret)
+             (cons (vf ret)
+                   (when-some [k (kf ret)]
+                     (lazy-seq (next (step k)))))))
+         (step initk)))
+   clojure.lang.IReduceInit
+   (reduce [_ rf init]
+           (loop [acc init
+                  ret (step initk)]
+             (if (somef ret)
+               (let [acc (rf acc (vf ret))]
+                 (if (reduced? acc)
+                   @acc
+                   (if-some [k (kf ret)]
+                     (recur acc (step k))
+                     acc)))
+               acc)))))
 
   (defn tagged-literal?
   "Return true if the value is the data representation of a tagged literal"
@@ -7800,7 +8033,8 @@ clojure.lang.IKVReduce
   (let []                                                          ;;; cl (.. Thread currentThread getContextClassLoader)
     (concat
       (enumeration-seq (.GetEnumerator ^System.Collections.IEnumerable (clojure.lang.RT/FindFiles "data_readers.clj")))         ;;; (.getResources cl "data_readers.clj")
-      (enumeration-seq (.GetEnumerator ^System.Collections.IEnumerable (clojure.lang.RT/FindFiles "data_readers.clj"))))))      ;;; (.getResources cl "data_readers.cljc")
+      (enumeration-seq (.GetEnumerator ^System.Collections.IEnumerable (clojure.lang.RT/FindFiles "data_readers.cljc")))        ;;; (.getResources cl "data_readers.cljc")
+      (enumeration-seq (.GetEnumerator ^System.Collections.IEnumerable (clojure.lang.RT/FindFiles "data_readers.cljr"))))))     ;;; DM: Added
 
 (defn- data-reader-var [sym]
   (intern (create-ns (symbol (namespace sym)))
@@ -7851,7 +8085,7 @@ clojure.lang.IKVReduce
   "Return true if x is a java.net.URI"
   {:added "1.9"}
   [x] (instance? System.Uri x))                                                    ;;; java.net.URI
-
+(try   (assembly-load-from (str clojure.lang.RT/SystemRuntimeDirectory "System.Collections.Concurrent.dll")) (catch Exception e (System.Console/WriteLine (str "Missing System.Collections.Concurrent"))))
 (defonce ^:private tapset (atom #{}))
 (defonce ^:private ^|System.Collections.Concurrent.BlockingCollection`1[System.Object]| tapq (|System.Collections.Concurrent.BlockingCollection`1[System.Object]|. 1024))    ;;; ^java.util.concurrent.ArrayBlockingQueue   java.util.concurrent.ArrayBlockingQueue.
 
@@ -7893,4 +8127,104 @@ clojure.lang.IKVReduce
   false if not (dropped)."
   {:added "1.10"}
   [x]
+  (force tap-loop)
   (.TryAdd tapq (if (nil? x) ::tap-nil x)))                                         ;;; .offer
+
+  (defn update-vals
+  "m f => {k (f v) ...}
+
+  Given a map m and a function f of 1-argument, returns a new map where the keys of m
+  are mapped to result of applying f to the corresponding values of m."
+  {:added "1.11"}
+  [m f]
+  (with-meta
+    (persistent!
+     (reduce-kv (fn [acc k v] (assoc! acc k (f v)))
+                (if (instance? clojure.lang.IEditableCollection m)
+                  (transient m)
+                  (transient {}))
+                m))
+    (meta m)))
+
+(defn update-keys
+  "m f => {(f k) v ...}
+  
+  Given a map m and a function f of 1-argument, returns a new map whose
+  keys are the result of applying f to the keys of m, mapped to the
+  corresponding values of m.
+  f must return a unique key for each key of m, else the behavior is undefined."
+  {:added "1.11"}
+  [m f]
+  (let [ret (persistent!
+             (reduce-kv (fn [acc k v] (assoc! acc (f k) v))
+                        (transient {})
+                        m))]
+    (with-meta ret (meta m))))
+
+(defn- parsing-err
+  "Construct message for parsing for non-string parsing error"
+  ^String [val]
+  (str "Expected string, got " (if (nil? val) "nil" (-> val class .Name))))      ;;; .getName
+
+(defn parse-long
+  {:doc "Parse string of decimal digits with optional leading -/+ and return a
+  Long value, or nil if parse fails"
+   :added "1.11"}
+  [^String s]                                                                ;;; ^Long  -- no equivalent since this can return nil  -- at least until we can return Nullable<long>
+  (if (string? s)
+    (try
+      (Int64/Parse s)                                                        ;;; Long/Parse
+      (catch FormatException _ nil)(catch OverflowException _ nil))          ;;; NumberFormatException  -- and added other cases
+    (throw (ArgumentException. (parsing-err s)))))                           ;;; IllegalArgumentException
+
+(defn parse-double
+  {:doc "Parse string with floating point components and return a Double value,
+  or nil if parse fails.
+
+  Grammar: https://docs.oracle.com/javase/8/docs/api/java/lang/Double.html#valueOf-java.lang.String-"
+   :added "1.11"}
+  [^String s]                                                                ;;; ^Double  -- no equivalent since this can return nil  -- at least until we can return Nullable<double>
+  (if (string? s)
+    (try
+      (Double/Parse s)                                                       ;;; Double/valueOf
+      (catch FormatException _ nil)(catch OverflowException _ nil))          ;;; NumberFormatException  -- and added other cases
+    (throw (ArgumentException. (parsing-err s)))))                           ;;; IllegalArgumentException
+
+(defn parse-uuid
+  {:doc "Parse a string representing a UUID and return a java.util.UUID instance,
+  or nil if parse fails.
+
+  Grammar: https://docs.oracle.com/javase/8/docs/api/java/util/UUID.html#toString--"
+   :added "1.11"}
+  ^System.Guid [^String s]                                                   ;;; java.util.UUID
+  (try
+    (System.Guid/Parse s)                                                    ;;; java.util.UUID/fromString
+    (catch ArgumentException _ nil)(catch FormatException _ nil)))           ;;; IllegalArgumentException  -- and added other cases
+
+(defn parse-boolean
+  {:doc "Parse strings \"true\" or \"false\" and return a boolean, or nil if invalid"
+   :added "1.11"}
+  [^String s]
+  (if (string? s)
+    (case s
+      "true" true
+      "false" false
+      nil)
+    (throw (ArgumentException. (parsing-err s)))))                          ;;; IllegalArgumentException
+
+(defn NaN?
+  {:doc "Returns true if num is NaN, else false"
+   :inline-arities #{1}
+   :inline (fn [num] `(Double/IsNaN ~num))                                  ;;; isNaN
+   :added "1.11"}
+
+  [^double num]
+  (Double/IsNaN num))                                                       ;;; isNaN
+
+(defn infinite?
+  {:doc "Returns true if num is negative or positive infinity, else false"
+   :inline-arities #{1}
+   :inline (fn [num] `(Double/IsInfinity ~num))                             ;;; isInfinite
+   :added "1.11"}
+  [^double num]
+  (Double/IsInfinity num))                                                  ;;; isInfinite

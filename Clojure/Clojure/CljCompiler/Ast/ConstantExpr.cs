@@ -8,10 +8,6 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
 using System;
 using System.Reflection.Emit;
 
@@ -43,7 +39,13 @@ namespace clojure.lang.CljCompiler.Ast
 
         public override bool HasClrType
         {
-            get { return _v.GetType().IsPublic; }
+            get 
+            { 
+                return _v.GetType().IsPublic
+                    || _v.GetType().IsNestedPublic
+                    || typeof(Type).IsInstanceOfType(_v);   // This bit of hackery is due to the fact that RuntimeType is not public.  
+                                                            // Without this, System.Int64 would be seen as only type System.Object, not System.RuntimeType.
+            }
         }
 
         public override Type ClrType
@@ -56,6 +58,8 @@ namespace clojure.lang.CljCompiler.Ast
                     return typeof(APersistentSet);
                 else if (_v is APersistentVector)
                     return typeof(APersistentVector);
+                else if (_v is Type)
+                    return typeof(Type);
                 else
                     return _v.GetType();
             }

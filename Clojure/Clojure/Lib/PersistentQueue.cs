@@ -114,7 +114,7 @@ namespace clojure.lang
             {
                  hash = 1;
                 for (ISeq s = seq(); s != null; s = s.next())
-                    hash = 31 * hash + (s.first() == null ? 0 : s.first().GetHashCode());
+                    hash = 31 * hash + (s.first() == null ? 0 : Util.hasheq(s.first()));      // GetHashCode
                 _hash = hash;
             }
             return hash;
@@ -284,7 +284,7 @@ namespace clojure.lang
 
         public object SyncRoot
         {
-            get { return true; }
+            get { return this; }
         }
 
         public bool Remove(object item)

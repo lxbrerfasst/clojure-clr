@@ -156,6 +156,30 @@
   (is (unchecked-int (char 0xFFFF)))
   (is (let [c (char 0xFFFF)] (unchecked-int c)))) ; force primitive char
 
+(compile-when (>= (:major dotnet-version) 9)
+
+(def expected-casts   ;; for byte 127 => 255  (not signed), and other differences
+  [
+   [:input [-1 0 1 Byte/MaxValue Int16/MaxValue Int32/MaxValue Int64/MaxValue Single/MaxValue Double/MaxValue]]
+   [char [:error (char 0) (char 1) (char 255) (char 32767) :error :error :error :error]]
+   [unchecked-char [(char 65535) (char 0) (char 1) (char 255) (char 32767) (char 65535) (char 65535) (char 65535) (char 65535)]]
+   [byte [:error 0 1 Byte/MaxValue :error :error :error :error :error]]
+   [unchecked-byte [255 0 1 Byte/MaxValue 255 255 255 255 255]]
+   [short [-1 0 1 Byte/MaxValue Int16/MaxValue :error :error :error :error]]
+   [unchecked-short [-1 0 1 Byte/MaxValue Int16/MaxValue -1 -1 -1 -1]]
+   [int [-1 0 1 Byte/MaxValue Int16/MaxValue Int32/MaxValue :error :error :error]]
+   [unchecked-int [-1 0 1 Byte/MaxValue Int16/MaxValue Int32/MaxValue -1 Int32/MaxValue Int32/MaxValue]]
+   [long [-1 0 1 Byte/MaxValue Int16/MaxValue Int32/MaxValue Int64/MaxValue :error :error]]
+   [unchecked-long [-1 0 1 Byte/MaxValue Int16/MaxValue Int32/MaxValue Int64/MaxValue Int64/MaxValue Int64/MaxValue]]
+                                                                                             ;; 2.14748365E9 if when float/double conversion is avoided...
+   [float [-1.0 0.0 1.0 255.0 32767.0 2.147483648E9 9.223372036854776E18 Single/MaxValue :error]]
+   [unchecked-float [-1.0 0.0 1.0 255.0 32767.0 2.147483648E9 9.223372036854776E18 Single/MaxValue Single/PositiveInfinity]]
+   [double [-1.0 0.0 1.0 255.0 32767.0 2.147483647E9 9.223372036854776E18 Single/MaxValue Double/MaxValue]]
+   [unchecked-double [-1.0 0.0 1.0 255.0 32767.0 2.147483647E9 9.223372036854776E18 Single/MaxValue Double/MaxValue]]])
+)
+
+(compile-when (< (:major dotnet-version) 9)
+
 (def expected-casts   ;; for byte 127 => 255  (not signed), and other differences
   [
    [:input [-1 0 1 Byte/MaxValue Int16/MaxValue Int32/MaxValue Int64/MaxValue Single/MaxValue Double/MaxValue]]
@@ -174,6 +198,7 @@
    [unchecked-float [-1.0 0.0 1.0 255.0 32767.0 2.147483648E9 9.223372036854776E18 Single/MaxValue Single/PositiveInfinity]]
    [double [-1.0 0.0 1.0 255.0 32767.0 2.147483647E9 9.223372036854776E18 Single/MaxValue Double/MaxValue]]
    [unchecked-double [-1.0 0.0 1.0 255.0 32767.0 2.147483647E9 9.223372036854776E18 Single/MaxValue Double/MaxValue]]])
+)
 
 (deftest test-expected-casts
   (let [[[_ inputs] & expectations] expected-casts]
@@ -183,6 +208,9 @@
                        (f x)
                        (catch ArgumentException e :error)))]           ;;; IllegalArgumentException
         (is (= vals (map wrapped inputs)))))))
+
+(deftest test-prim-with-matching-hint
+  (is (= 1.0 (let [x 1.2] (Math/Round ^double x)))))                     ;;; 1 round
 
 ;; *** Functions ***
 
@@ -595,7 +623,17 @@ Math/pow overflows to Infinity."
   (is (== (denominator 1/2) 2))
   (is (== (numerator 1/2) 1))
   (is (= (bigint (/ 100000000000000000000 3)) 33333333333333333333))
-  (is (= (long 10000000000000000000/3) 3333333333333333333)))
+  (is (= (long 10000000000000000000/3) 3333333333333333333))
+
+  ;; special cases around Long/MIN_VALUE
+  (is (= (/ 1 Int64/MinValue) -1/9223372036854775808))                            ;;; Long/MIN_VALUE
+  (is (true? (< (/ 1 Int64/MinValue) 0)))                                         ;;; Long/MIN_VALUE
+  (is (true? (< (* 1 (/ 1 Int64/MinValue)) 0)))                                   ;;; Long/MIN_VALUE
+  (is (= (abs (/ 1 Int64/MinValue)) 1/9223372036854775808))                       ;;; Long/MIN_VALUE
+  (is (false? (< (abs (/ 1 Int64/MinValue)) 0)))                                  ;;; Long/MIN_VALUE
+  (is (false? (< (* 1 (abs (/ 1 Int64/MinValue))) 0)))                            ;;; Long/MIN_VALUE
+  (is (= (/ Int64/MinValue -3) 9223372036854775808/3))                            ;;; Long/MIN_VALUE
+  (is (false? (< (/ Int64/MinValue -3) 0))))                                      ;;; Long/MIN_VALUE
 
 (deftest test-arbitrary-precision-subtract
   (are [x y] (= x y)
@@ -643,6 +681,20 @@ Math/pow overflows to Infinity."
     (is (= Int64 (class (min 1.0 -10 2.0))))                        ;;; java.lang.Long
     (is (= Int64 (class (min 1.0 2.0 -10))))                        ;;; java.lang.Long
     (is (= Double (class (min 1 2 -10.0 3 4 5))))))                 ;;; java.lang.Double
+
+(deftest test-abs
+  (are [in ex] (= ex (abs in))
+    -1 1
+    1 1
+    ;;;  Int64/MinValue Int64/MinValue   ;; special case!    Long/MIN_VALUE Long/MIN_VALUE  -- in CLR, taking abs of Int64/MaxValue throws
+    -1.0 1.0
+    -0.0 0.0
+    ##-Inf ##Inf
+    ##Inf ##Inf
+    -123.456M 123.456M
+    -123N 123N
+    -1/5 1/5)
+  (is (NaN? (abs ##NaN))))
 
 (deftest clj-868
   (testing "min/max: NaN is contagious"

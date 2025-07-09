@@ -104,15 +104,16 @@ namespace clojure.lang
         /// <returns>A hash code for the current object.</returns>
         /// <remarks>The hash code is cached after it is computed the first time.  The hash code depends on the value (sequenc of items).</remarks>
         public override int GetHashCode()
-        { 
-            if ( _hash == 0 )
-            {
-                int h = 1;
-                for (ISeq s = seq(); s != null; s = s.next())
-                    h = 31 * h + (s.first() == null ? 0 : s.first().GetHashCode());
-                _hash = h;
-            }
-            return _hash;
+        {
+            return hasheq();
+            //if ( _hash == 0 )
+            //{
+            //    int h = 1;
+            //    for (ISeq s = seq(); s != null; s = s.next())
+            //        h = 31 * h + (s.first() == null ? 0 : s.first().GetHashCode());
+            //    _hash = h;
+            //}
+            //return _hash;
         }
 
         #endregion
@@ -225,6 +226,9 @@ namespace clojure.lang
                 return false;
 
             ISeq ms = RT.seq(o);
+
+            if (this is Counted tc && o is Counted oc && (tc.count() != oc.count()))
+                return false;
 
             for (ISeq s = seq(); s != null; s = s.next(), ms = ms.next())
             {
@@ -417,7 +421,7 @@ namespace clojure.lang
 
         #region IHashEq
 
-        public int hasheq()
+        public virtual int hasheq()
         {
             if (_hasheq == 0)
             {

@@ -67,8 +67,9 @@
       (throw (ArgumentException. (apply print-str "Unsupported option(s) -" bad-opts))))   ;;; IllegalArgumentException
     [interfaces methods opts]))
 
-(defmacro reify 
-  "reify is a macro with the following structure:
+(defmacro reify
+  "reify creates an object implementing a protocol or interface.
+  reify is a macro with the following structure:
 
  (reify options* specs*)
   
@@ -100,19 +101,20 @@
   same arity in an interface you must specify complete hints to
   disambiguate - a missing hint implies Object.
 
-  recur works to method heads The method bodies of reify are lexical
-  closures, and can refer to the surrounding local scope:
+  Method heads are recursion points for recur, as in a fn. The method
+  bodies of reify are lexical closures, and can refer to the surrounding
+  local scope:
   
   (str (let [f \"foo\"] 
-       (reify Object 
-         (toString [this] f))))
+         (reify Object
+           (toString [this] f))))
   == \"foo\"
 
   (seq (let [f \"foo\"] 
-       (reify clojure.lang.Seqable 
-         (seq [this] (seq f)))))
-  == (\\f \\o \\o))
-  
+         (reify clojure.lang.Seqable
+           (seq [this] (seq f)))))
+  == (\\f \\o \\o)
+
   reify always implements clojure.lang.IObj and transfers meta
   data of the form to the created object.
   
@@ -184,7 +186,7 @@
                                     hq#)))
                `(GetHashCode [this#] (let [hash# ~'__hash]                                           ;;; hashCode
                                     (if (zero? hash#)
-                                      (let [h# (clojure.lang.APersistentMap/mapHash this#)]
+                                      (let [h# (clojure.lang.APersistentMap/mapHasheq this#)]        ;;; mapHash
                                         (set! ~'__hash h#)
                                         h#)
                                       hash#)))
@@ -666,8 +668,8 @@
 
 (defn- assert-same-protocol [protocol-var method-syms]
   (doseq [m method-syms]
-    (let [v (resolve m)
-          p (:protocol (meta v))]
+    (let [^clojure.lang.Var v (resolve m)                                        ;;; Added type hint. Though resolve can return many things, the usage below -- (.sym v) -- implies that it is a Var
+          ^clojure.lang.Var p (:protocol (meta v))]                              ;;; Similar.
       (when (and v (bound? v) (not= protocol-var p))
         (binding [*out* *err*]
           (println "Warning: protocol" protocol-var "is overwriting"
@@ -685,7 +687,17 @@
             [opts sigs]))
         sigs (when sigs
                (reduce1 (fn [m s]
-                          (let [name-meta (meta (first s))
+                          (let [disallowed? '#{int long float double char short byte boolean void uint ulong ushort sbyte}                           ;;; Added unsigned types
+                                array-tag? '#{ints longs floats doubles chars shorts bytes booleans objects uints ulongs ushorts sbytes}             ;;; Added unsigned types
+                                resolve-class-symbol (fn [tag]
+                                                       (when-not (disallowed? tag)
+                                                         (if-let [c (and (instance? clojure.lang.Symbol tag)
+                                                                         (= (.IndexOf (.Name ^clojure.lang.Symbol tag) ".") -1)                       ;;; .indexOf   .getName
+                                                                         (not (array-tag? tag))
+                                                                         (resolve tag))]
+                                                           (symbol (.FullName c))                                                                     ;;; .getName
+                                                           tag)))
+                                name-meta (update-in (meta (first s)) [:tag] resolve-class-symbol)
                                 mname (with-meta (first s) nil)
                                 [arglists doc]
                                 (loop [as [] rs (rest s)]

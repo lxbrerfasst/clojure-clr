@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.1;netstandard2.0</TargetFrameworks>
-    <RootNamespace>clojure.lang</RootNamespace>
+	  <TargetFrameworks>net462;net6.0;net8.0;net9.0</TargetFrameworks>
+    <RootNamespace></RootNamespace>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
@@ -11,120 +11,147 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Update="clojure\core\protocols.clj">
+    <None Remove="clojure\clr\basis.cljc" />
+    <None Remove="clojure\clr\basis\impl.cljc" />
+    <None Remove="clojure\clr\math.clj" />
+    <None Remove="clojure\clr\process.clj" />
+    <None Remove="clojure\repl\deps.cljc" />
+    <None Remove="clojure\tools\deps\interop.cljc" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="clojure\clr\basis.cljc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\core\reducers.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\clr\basis\impl.cljc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\core_clr.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\clr\process.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\data.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\math.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\datafy.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\edn.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core\protocols.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\gvec.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core\reducers.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\instant.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core_clr.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint\print_table.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\data.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\reflect\clr.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\datafy.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\core.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\edn.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\core_print.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\gvec.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\core_proxy.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\instant.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\genclass.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint\print_table.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\main.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\reflect\clr.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\set.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core_print.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\stacktrace.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core_proxy.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\template.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\genclass.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\test.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\main.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\test\junit.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\repl\deps.cljc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\test\tap.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\set.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\uuid.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\stacktrace.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\walk.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\template.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\zip.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\test.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\core_deftype.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\test\junit.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\clr\shell.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\test\tap.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\reflect.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\tools\deps\interop.cljc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\clr\io.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\uuid.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\string.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\walk.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\zip.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint\cl_format.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core_deftype.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint\column_writer.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\clr\shell.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint\dispatch.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\reflect.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint\pprint_base.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\clr\io.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint\pretty_writer.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\string.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\pprint\utilities.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\repl.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint\cl_format.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="clojure\core\server.clj">
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint\column_writer.clj">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint\dispatch.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint\pprint_base.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint\pretty_writer.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\pprint\utilities.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\repl.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="clojure\core\server.clj">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
   </ItemGroup>
   
 </Project>

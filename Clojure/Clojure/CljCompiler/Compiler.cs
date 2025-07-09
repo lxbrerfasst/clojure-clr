@@ -8,22 +8,20 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler.Ast;
+using clojure.lang.CljCompiler.Context;
+using Microsoft.Scripting.Runtime;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Text;
 using System.IO;
-using System.Threading;
-using clojure.lang.CljCompiler.Ast;
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Text.RegularExpressions;
 using System.Runtime.Serialization;
-using System.Collections;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace clojure.lang
 {
@@ -39,21 +37,59 @@ namespace clojure.lang
 
         #region Duplicate types
 
-        static readonly Dictionary<String, Type> _duplicateTypeMap = new Dictionary<string, Type>();
+        static readonly Dictionary<String, Type> _evalTypeMap = new Dictionary<string, Type>();
+        static readonly Dictionary<String, Type> _compilerTypeMap = new Dictionary<string, Type>();
+
+#if NETFRAMEWORK
+
+        // preserve the original versions of these methods under NETFRAMEWORK.
+        // Otherwise, we viodate the tests of CLJ-979 in test_clojure/compilation2.
+        // This may be unavoidable in .Net 9.0 and later.
 
         internal static void RegisterDuplicateType(Type type)
         {
-            _duplicateTypeMap[type.FullName] = type;
+                _evalTypeMap[type.FullName] = type;
         }
 
         internal static Type FindDuplicateType(string typename)
         {
-            _duplicateTypeMap.TryGetValue(typename, out Type type);
+            _evalTypeMap.TryGetValue(typename, out Type type);
             return type;
         }
 
+        internal static Type FindDuplicateCompiledType(string typename) => null;
+
+#else
+        internal static void RegisterDuplicateType(Type type)
+        {
+            if (Compiler.IsCompiling)
+                _compilerTypeMap[type.FullName] = type;
+            else
+                _evalTypeMap[type.FullName] = type;
+        }
+
+        internal static Type FindDuplicateType(string typename)
+        {
+            if (Compiler.IsCompiling && _compilerTypeMap.TryGetValue(typename, out Type compiledType))
+            { return compiledType; }
+
+            _evalTypeMap.TryGetValue(typename, out Type type);
+
+            return type;
+        }
+
+        internal static Type FindDuplicateCompiledType(string typename)
+        {
+            if (_compilerTypeMap.TryGetValue(typename, out Type compiledType))
+                return compiledType;
+            else
+                return null;
+        }
+
+#endif
+
         #endregion
-        
+
         #region Symbols
 
         public static readonly Symbol DefSym = Symbol.intern("def");
@@ -84,6 +120,8 @@ namespace clojure.lang
         public static readonly Symbol ThisSym = Symbol.intern("this");
         public static readonly Symbol ReifySym = Symbol.intern("reify*");
         public static readonly Symbol AmpersandSym = Symbol.intern("&");
+
+        public static readonly Symbol ParseEvalSym = Symbol.intern("parse-eval*");
 
         public static readonly Symbol IdentitySym = Symbol.intern("clojure.core", "identity");
 
@@ -196,7 +234,7 @@ namespace clojure.lang
 
         internal static readonly Var CompilerContextVar = Var.create(null).setDynamic();
         internal static readonly Var CompilerActiveVar = Var.create(false).setDynamic();
-        
+
         public static Var CompilerOptionsVar;
 
         public static object GetCompilerOption(Keyword k)
@@ -204,7 +242,7 @@ namespace clojure.lang
             return RT.get(CompilerOptionsVar.deref(), k);
         }
 
-        static void InitializeCompilerOptions()
+        internal static void InitializeCompilerOptions()
         {
             Object compilerOptions = null;
 
@@ -221,7 +259,7 @@ namespace clojure.lang
 					// compiler options on *nix need to be of the form
 					// CLOJURE_COMPILER_DIRECT_LINKING because most shells do not
 					// support hyphens in variable names
-					string optionName = name.Substring(1 + nixPrefix.Length).Replace("_", "-").ToLower();
+					string optionName = name.Substring(nixPrefix.Length).Replace("_", "-").ToLower();
                     compilerOptions = RT.assoc(compilerOptions,
                         RT.keyword(null, optionName),
                         RT.readString(v));
@@ -229,7 +267,7 @@ namespace clojure.lang
 				if ( name.StartsWith(winPrefix))
                 {
                     compilerOptions = RT.assoc(compilerOptions,
-                        RT.keyword(null, name.Substring(1 + winPrefix.Length)),
+                        RT.keyword(null, name.Substring(winPrefix.Length)),
                         RT.readString(v));
                 }
 
@@ -278,7 +316,8 @@ namespace clojure.lang
             CatchSym, null,
             FinallySym, null,
             NewSym, new NewExpr.Parser(),
-            AmpersandSym, null
+            AmpersandSym, null,
+            ParseEvalSym, new ParseEvalExpr.Parser()
         );
 
         public static bool IsSpecial(Object sym)
@@ -314,6 +353,7 @@ namespace clojure.lang
         internal static readonly MethodInfo Method_Monitor_Exit = typeof(Monitor).GetMethod("Exit", new Type[] { typeof(Object) });
 
         internal static readonly MethodInfo Method_Namespace_importClass1 = typeof(Namespace).GetMethod("importClass", new Type[] { typeof(Type) });
+        internal static readonly MethodInfo Method_Namespace_importClass2 = typeof(Namespace).GetMethod("importClass", new Type[] { typeof(Symbol), typeof(Type) });
 
         internal static readonly MethodInfo Method_PersistentList_create = typeof(PersistentList).GetMethod("create", new Type[] { typeof(System.Collections.IList) });
         internal static readonly MethodInfo Method_PersistentHashSet_create = typeof(PersistentHashSet).GetMethod("create", new Type[] { typeof(Object[]) });
@@ -323,11 +363,13 @@ namespace clojure.lang
         internal static readonly MethodInfo Method_Reflector_SetInstanceFieldOrProperty = typeof(Reflector).GetMethod("SetInstanceFieldOrProperty");
 
         internal static readonly MethodInfo Method_RT_classForName = typeof(RT).GetMethod("classForName");
+        internal static readonly MethodInfo Method_RT_classForNameE = typeof(RT).GetMethod("classForNameE");
         internal static readonly MethodInfo Method_RT_intCast_long = typeof(RT).GetMethod("intCast", new Type[] { typeof(long) });
         internal static readonly MethodInfo Method_RT_uncheckedIntCast_long = typeof(RT).GetMethod("uncheckedIntCast", new Type[] { typeof(long) });
         internal static readonly MethodInfo Method_RT_keyword = typeof(RT).GetMethod("keyword");
         internal static readonly MethodInfo Method_RT_map = typeof(RT).GetMethod("map");
         internal static readonly MethodInfo Method_RT_mapUniqueKeys = typeof(RT).GetMethod("mapUniqueKeys"); 
+        internal static readonly MethodInfo Method_RT_seq = typeof(RT).GetMethod("seq"); 
         internal static readonly MethodInfo Method_RT_seqOrElse = typeof(RT).GetMethod("seqOrElse");
         internal static readonly MethodInfo Method_RT_set = typeof(RT).GetMethod("set");
         internal static readonly MethodInfo Method_RT_vector = typeof(RT).GetMethod("vector");
@@ -379,6 +421,80 @@ namespace clojure.lang
 
         #endregion
 
+        #region QME, param-tag suport
+
+        internal readonly static Symbol ParamTagAny = Symbol.intern(null, "_");
+
+        internal static IPersistentVector ParamTagsOf(Symbol sym)
+        {
+            var paramTags = RT.get(RT.meta(sym),RT.ParamTagsKey);
+
+            if (paramTags != null && !(paramTags is IPersistentVector))
+                throw new ArgumentException($"param-tags of symbol {sym} should be a vector.");
+
+            return (IPersistentVector)paramTags;
+        }
+
+        // calls TagToType on every element, unless it encounters _ which becomes null
+        internal static List<Type> TagsToClasses(ISeq paramTags)
+        {
+            if (paramTags == null)
+                return null;
+
+            var sig = new List<Type>();
+
+            for (ISeq s = paramTags; s != null; s = s.next())
+            {
+                var t = s.first();
+                if (t.Equals(ParamTagAny))
+                    sig.Add(null);
+                else
+                    sig.Add(HostExpr.TagToType(t));
+            }
+    
+            return sig;
+        }
+
+        internal static bool SignatureMatches(List<Type> sig, MethodBase method)
+        {
+            ParameterInfo[] methodSig = method.GetParameters();
+
+            for ( int i=0; i<methodSig.Length; i++ )
+            {
+                if (sig[i] != null && !sig[i].Equals(methodSig[i].ParameterType))
+                    return false;
+            }
+
+            return true;
+        }
+
+        static bool IsStaticMethod(MethodBase method) => method is MethodInfo mi && method.IsStatic;
+        static bool IsInstanceMethod(MethodBase method) => !(method is MethodInfo) || method.IsStatic;
+        static bool IsConstructor(MethodBase method) => method is ConstructorInfo;
+
+        public static void CheckMethodArity(MethodBase method, int argCount)
+        {
+            ParameterInfo[] methodSig = method.GetParameters();
+            if (methodSig.Length != argCount)
+            {
+                string name = method is ConstructorInfo ? "new" : method.Name;
+                string description = MethodDescription(method.DeclaringType, name);
+                throw new ArgumentException($"Invocation of {description} expected {methodSig.Length} arguments, but received {argCount}.");
+            }
+        }
+
+        public static string MethodDescription(Type t, string name)
+        {
+            bool isCtor = t != null && name.Equals("new");
+            string type = isCtor ? "constructor" : "method";
+            return $"{type} {(isCtor ? "" : name)} in class {t.Name}";
+        }
+      
+
+
+        #endregion
+
+
         #region C-tors & factory methods
 
         static Compiler()
@@ -392,16 +508,25 @@ namespace clojure.lang
             Methods_IFn_invoke[Compiler.MaxPositionalArity + 1]
                 = typeof(IFn).GetMethod("invoke", types);
 
-            InitializeCompilerOptions();
+            // Moved this to clojure.lang.RT's static constructor because we need to bind *compiler-options* there.
+            // InitializeCompilerOptions();
         }
 
         #endregion
 
         #region Symbol/namespace resolving
 
-        // TODO: we have duplicate code below.
+        // Registry of Var -> Type
+        // Where the key is a Var that has been def'd to a Type that was generated by compilation.
 
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "ClojureJVM name match")]
+        static Dictionary<Var, Type> _directLinkingMap = new Dictionary<Var, Type>();
+
+        public static void RegisterDirectLink(Var var, Type type) => _directLinkingMap[var] = type;
+        public static bool TryGetDirectLink(Var var, out Type t) => _directLinkingMap.TryGetValue(var, out t);
+
+// TODO: we have duplicate code below.
+
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "ClojureJVM name match")]
         public static Symbol resolveSymbol(Symbol sym)
         {
             //already qualified or classname?
@@ -412,8 +537,12 @@ namespace clojure.lang
             {
                 Namespace ns = namespaceFor(sym);
                 if (ns == null || (ns.Name.Name == null ? sym.Namespace == null : ns.Name.Name.Equals(sym.Namespace)))
-
+                {
+                    Type at = HostExpr.MaybeArrayType(sym);
+                    if (at != null)
+                        return Util.arrayTypeToSymbol(at);
                     return sym;
+                }
                 return Symbol.intern(ns.Name.Name, sym.Name);
             }
 
@@ -423,7 +552,7 @@ namespace clojure.lang
 
             Type ot = o as Type;
              if (ot != null)
-                return Symbol.intern(null, Util.NameForType(ot));
+                return Symbol.intern(null, ot.FullName);
 
             if (o is Var ov)
                 return Symbol.intern(ov.Namespace.Name.Name, ov.Symbol.Name);
@@ -475,7 +604,12 @@ namespace clojure.lang
             {
                 Namespace ns = namespaceFor(n, symbol);
                 if (ns == null)
+                {
+                    Type at = HostExpr.MaybeArrayType(symbol);
+                    if ( at != null)
+                        return at;
                     throw new InvalidOperationException("No such namespace: " + symbol.Namespace);
+                }
 
                 Var v = ns.FindInternedVar(Symbol.intern(symbol.Name));
                 if (v == null)
@@ -496,6 +630,15 @@ namespace clojure.lang
                     return CompileStubClassVar.get();
 
                 object o = n.GetMapping(symbol);
+
+                if (o is Type type)
+                {
+                    var tName = type.FullName;
+                    var compiledType = Compiler.FindDuplicateCompiledType(tName);
+                    if (compiledType is not null && Compiler.IsCompiling)
+                        return compiledType;
+                }
+
                 if (o == null)
                 {
                     if (RT.booleanCast(RT.AllowUnresolvedVarsVar.deref()))
@@ -511,11 +654,11 @@ namespace clojure.lang
         public static object maybeResolveIn(Namespace n, Symbol symbol)
         {
             // note: ns-qualified vars must already exist
-            if (symbol.Namespace != null)
+             if (symbol.Namespace != null)
             {
                 Namespace ns = namespaceFor(n, symbol);
                 if (ns == null)
-                    return null;
+                    return HostExpr.MaybeArrayType(symbol);
 
                 Var v = ns.FindInternedVar(Symbol.intern(symbol.Name));
                 if (v == null)
@@ -532,7 +675,16 @@ namespace clojure.lang
             else
             {
                 object o = n.GetMapping(symbol);
+                if (o is Type type)
+                {
+                    var tName = type.FullName;
+                    var compiledType = Compiler.FindDuplicateCompiledType(tName);
+                    if ( compiledType is not null && Compiler.IsCompiling)
+                        return compiledType;                       
+                }
+
                 return o;
+
             }
         }
 
@@ -807,6 +959,28 @@ namespace clojure.lang
                 throw new InvalidOperationException(String.Format("Cannot coerce {0} to {1}, use a cast instead", ret, tc));
             }
             return tc;
+        }
+
+        private static Dictionary<Type,string> primTypeNamesMap = new Dictionary<Type,string>
+        {
+            { typeof(int), "int" },
+            { typeof(long), "long" },
+            { typeof(float), "float" },
+            { typeof(double), "double" },
+            { typeof(char), "char" },
+            { typeof(short), "short" },
+            { typeof(byte), "byte" },
+            { typeof(bool), "bool" },
+            { typeof(uint), "uint" },
+            { typeof(ulong), "ulong" },
+            { typeof(ushort), "ushort" },
+            { typeof(sbyte), "sbyte" },
+            { typeof(void), "void" }
+        };
+
+        public static bool TryPrimTypeToName(Type type, out string name)
+        {
+            return primTypeNamesMap.TryGetValue(type, out name);
         }
 
         public static Type PrimType(Symbol sym)
@@ -1238,7 +1412,8 @@ namespace clojure.lang
                 {
                     string sname = sym.Name;
                     // (.substring s 2 5) => (. x substring 2 5)
-                    if (sname[0] == '.')
+                    // ns == null ensures that Class/.instanceMethod isn't expanded to . form
+                    if (sname[0] == '.' && sym.Namespace == null)
                     {
                         if (form.count() < 2)
                             throw new ArgumentException("Malformed member expression, expecting (.member target ...)");
@@ -1249,17 +1424,17 @@ namespace clojure.lang
                         // We need to make sure source information gets transferred
                         return MaybeTransferSourceInfo(PreserveTag(form, RT.listStar(DotSym, target, method, form.next().next())), form);
                     }
-                    else if (NamesStaticMember(sym))
-                    {
-                        Symbol target = Symbol.intern(sym.Namespace);
-                        Type t = HostExpr.MaybeType(target, false);
-                        if (t != null)
-                        {
-                            Symbol method = Symbol.intern(sym.Name);
-                            // We need to make sure source information gets transferred
-                            return MaybeTransferSourceInfo(PreserveTag(form, RT.listStar(Compiler.DotSym, target, method, form.next())), form);
-                        }
-                    }
+                    //else if (NamesStaticMember(sym))
+                    //{
+                    //    Symbol target = Symbol.intern(sym.Namespace);
+                    //    Type t = HostExpr.MaybeType(target, false);
+                    //    if (t != null)
+                    //    {
+                    //        Symbol method = Symbol.intern(sym.Name);
+                    //        // We need to make sure source information gets transferred
+                    //        return MaybeTransferSourceInfo(PreserveTag(form, RT.listStar(Compiler.DotSym, target, method, form.next())), form);
+                    //    }
+                    //}
                     else
                     {
                         // (x.substring 2 5) =>  (. x substring 2 5)
@@ -1562,10 +1737,17 @@ namespace clojure.lang
             MethodBuilder initMB = initTB.DefineMethod("Initialize", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
             CljILGen ilg = new CljILGen(initMB.GetILGenerator());
 
+            //// Print a little message, for debugging purposes
+            //ilg.Emit(OpCodes.Ldstr, $"Initializing {sourceDirectory} {relativePath} ");
+            //ilg.Emit(OpCodes.Call, typeof(Console).GetMethod("WriteLine",
+            //    new Type[] { typeof(string) }));
+            //ilg.Emit(OpCodes.Call, typeof(Console).GetMethod("get_Out"));
+            //ilg.Emit(OpCodes.Call, typeof(System.IO.TextWriter).GetMethod("Flush"));
+
             LineNumberingTextReader lntr = rdr as LineNumberingTextReader ?? new LineNumberingTextReader(rdr);
 
             Var.pushThreadBindings(RT.mapUniqueKeys(
-                SourcePathVar, sourcePath,
+                SourcePathVar, relativePath,
                 SourceVar, sourceName,
                 MethodVar, null,
                 LocalEnvVar, null,
@@ -1666,7 +1848,17 @@ namespace clojure.lang
                     objx.EmitConstantFieldDefs(tb);
                     expr.Emit(RHC.Expression,objx,ilg);
                     ilg.Emit(OpCodes.Pop);
+
+                    if (expr is DefExpr dex && dex.Init is FnExpr fnx)
+                    {
+                        RegisterDirectLink(dex.Var, fnx.CompiledType);                        
+                    }
+
+#if NET9_0_OR_GREATER
+                    DoSeparateEval(evPC, form);
+#else
                     expr.Eval();
+#endif
                 }
             }
             finally
@@ -1675,8 +1867,39 @@ namespace clojure.lang
             }
         }
 
+        private static void DoSeparateEval(ParserContext evPC, Object form)
+        {
+            // Reset the environment to avoid leaking the compile environment
+
+            Var.pushThreadBindings(RT.mapUniqueKeys(
+                MethodVar, null,
+                LocalEnvVar, null,
+                LoopLocalsVar, null,
+                NextLocalNumVar, 0,
+                //RT.ReadEvalVar, true /* RT.T */,
+                //RT.CurrentNSVar, RT.CurrentNSVar.deref(),  Do not reset this -- we need to see changes to this that might happen, e.g. with (ns ..) or (in-ns ...) calls
+                ConstantsVar, PersistentVector.EMPTY,
+                ConstantIdsVar, new IdentityHashMap(),
+                KeywordsVar, PersistentHashMap.EMPTY,
+                VarsVar, PersistentHashMap.EMPTY,
+                //RT.UncheckedMathVar, RT.UncheckedMathVar.deref(),
+                //RT.WarnOnReflectionVar, RT.WarnOnReflectionVar.deref(),
+                //RT.DataReadersVar, RT.DataReadersVar.deref(),
+                CompilerContextVar, null,
+                CompilerActiveVar, false
+                ));
+            try
+            {
+                Compiler.eval(form);
+            }
+            finally
+            {
+                Var.popThreadBindings();
+            }
+        }
+
         #endregion
-        
+
         #region Loading
 
         internal static void LoadAssembly(FileInfo assyInfo, string relativePath)
@@ -1795,7 +2018,7 @@ namespace clojure.lang
         {
             FileInfo finfo = new FileInfo(fileName);
             if (!finfo.Exists)
-                throw new FileNotFoundException("Cannot find file to load", fileName);
+                throw new FileNotFoundException($"Cannot find file to load: {fileName}", fileName);
 
             using (TextReader rdr = finfo.OpenText())
                 return load(rdr, finfo.FullName, finfo.Name, fileName);
@@ -1847,15 +2070,21 @@ namespace clojure.lang
             ConsumeWhitespaces(lntr);
 
             Var.pushThreadBindings(RT.mapUniqueKeys(
+
                 //LOADER, RT.makeClassLoader(),
-                SourcePathVar, sourcePath,
+                SourcePathVar, relativePath,
                 SourceVar, sourceName,
+                MethodVar, null,
+                LocalEnvVar, null,
+                LoopLocalsVar, null,
+                NextLocalNumVar, 0,
                 RT.ReadEvalVar, true /* RT.T */,
                 RT.CurrentNSVar, RT.CurrentNSVar.deref(),
                 RT.UncheckedMathVar, RT.UncheckedMathVar.deref(),
                 RT.WarnOnReflectionVar, RT.WarnOnReflectionVar.deref(),
                 RT.DataReadersVar, RT.DataReadersVar.deref(),
-                CompilerContextVar, EvalContext
+                CompilerContextVar, EvalContext,
+                CompilerActiveVar, false
                 //LINE_BEFORE, lntr.LineNumber,
                 //LINE_AFTER, lntr.LineNumber,
                 //COLUMN_BEFORE, lntr.ColumnNumber,
@@ -1894,7 +2123,7 @@ namespace clojure.lang
             }
             catch (Exception e)
             {
-                throw new CompilerException(sourcePath, lineBefore, columnBefore, e);
+                throw new CompilerException(sourcePath, lineBefore, columnBefore, null, CompilerException.PhaseExecutionKeyword, e);
             }
             finally
             {
@@ -1996,7 +2225,7 @@ namespace clojure.lang
             }
             else
             {
-                if (namespaceFor(symbol) == null)
+                if (namespaceFor(symbol) == null && !Util.IsPosDigit(symbol.Name))
                 {
                     Symbol nsSym = Symbol.intern(symbol.Namespace);
                     Type t = HostExpr.MaybeType(nsSym, false);
@@ -2006,11 +2235,12 @@ namespace clojure.lang
                         PropertyInfo pinfo;
 
                         if ((finfo = Reflector.GetField(t, symbol.Name, true)) != null)
-                            return new StaticFieldExpr((string)SourceVar.deref(),(IPersistentMap)Compiler.SourceSpanVar.deref(), tag, t, symbol.Name, finfo);
+                            return new StaticFieldExpr((string)SourceVar.deref(), (IPersistentMap)Compiler.SourceSpanVar.deref(), tag, t, symbol.Name, finfo);
                         else if ((pinfo = Reflector.GetProperty(t, symbol.Name, true)) != null)
                             return new StaticPropertyExpr((string)SourceVar.deref(), (IPersistentMap)Compiler.SourceSpanVar.deref(), tag, t, symbol.Name, pinfo);
+                        else return new QualifiedMethodExpr(t, symbol);
                     }
-                    throw new InvalidOperationException(string.Format("Unable to find static field: {0} in {1}", symbol.Name, t));
+                    //throw new InvalidOperationException(string.Format("Unable to find static field: {0} in {1}", symbol.Name, t));
                 }
             }
 
@@ -2035,7 +2265,7 @@ namespace clojure.lang
             throw new InvalidOperationException(string.Format("Unable to resolve symbol: {0} in this context", symbol));
         }
 
-        private static Expr AnalyzeSeq(ParserContext pcon, ISeq form, string name )
+        internal static Expr AnalyzeSeq(ParserContext pcon, ISeq form, string name )
         {
             object line = LineVarDeref();
             object column = ColumnVarDeref();

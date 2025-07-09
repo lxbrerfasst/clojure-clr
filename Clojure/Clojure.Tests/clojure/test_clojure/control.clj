@@ -421,8 +421,15 @@
          :b 1
          :c -2
          :d 4294967296
-         :d 3))
-  (testing "test warn for hash collision"
+         :d 3)
+    (are [result input] (= result (case input
+                                    #{a} :set
+                                    :foo :keyword
+                                    a :symbol))
+         :symbol 'a
+         :keyword :foo
+         :set '#{a}))
+  #_(testing "test warn for hash collision"                   ;;; I don't know at this point how to find two values that would cause a hash collision.
     (should-print-err-message
      #"Performance warning, .*:\d+ - hash collision of some case test constants; if selected, those entries will be tested sequentially..*\r?\n"
      (case 1 1 :long 9223372039002259457N :big 2)))

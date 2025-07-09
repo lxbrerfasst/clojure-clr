@@ -8,17 +8,14 @@
  *   You must not remove this notice, or any other, from this software.
  **/
 
-/**
- *   Author: David Miller
- **/
-
+using clojure.lang.CljCompiler.Context;
+using clojure.lang.Runtime;
+using clojure.lang.Runtime.Binding;
 using System;
 using System.Collections.Generic;
-using System.Reflection;
-using System.Linq.Expressions;
 using System.Dynamic;
-using clojure.lang.Runtime.Binding;
-using clojure.lang.Runtime;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Reflection.Emit;
 
 namespace clojure.lang.CljCompiler.Ast
@@ -46,6 +43,16 @@ namespace clojure.lang.CljCompiler.Ast
 
         #region Ctors
 
+        public NewExpr(Type type, ConstructorInfo ctor, IList<HostArg> args, IPersistentMap spanMap)
+        {
+            Compiler.CheckMethodArity(ctor, RT.count(args));
+
+            _args = args;
+            _type = type;
+            _spanMap = spanMap;
+            _ctor = ctor;
+        }
+
         public NewExpr(Type type, IList<HostArg> args, IPersistentMap spanMap)
         {
             _args = args;
@@ -71,12 +78,20 @@ namespace clojure.lang.CljCompiler.Ast
                     _isNoArgValueTypeCtor = true;
                     return null;
                 }
-                throw new InvalidOperationException(string.Format("No constructor in type: {0} with {1} arguments", _type.Name, numArgs));
+                throw new ArgumentException(string.Format("No constructor in type: {0} with {1} arguments", _type.Name, numArgs));
             }
 
             if (ctor == null && RT.booleanCast(RT.WarnOnReflectionVar.deref()))
+            {
                 RT.errPrintWriter().WriteLine("Reflection warning, {0}:{1}:{2} - call to {3} ctor can't be resolved.",
                     Compiler.SourcePathVar.deref(), Compiler.GetLineFromSpanMap(_spanMap), Compiler.GetColumnFromSpanMap(_spanMap), _type.FullName);
+                RT.errPrintWriter().Flush();
+            }
+
+#if NET9_0_OR_GREATER
+            if (_type != null && Compiler.IsCompiling && _type.Assembly.IsDynamic && _type.Assembly is not PersistedAssemblyBuilder)
+                Console.WriteLine($"Compiling, found constructor for dynamic, non-persisted type: {_type}");
+#endif
 
             return ctor;
         }
@@ -236,7 +251,7 @@ namespace clojure.lang.CljCompiler.Ast
             CreateInstanceBinder binder = new ClojureCreateInstanceBinder(ClojureContext.Default, _args.Count);
             DynamicExpression dyn = Expression.Dynamic(binder, typeof(object), paramExprs);
 
-            MethodExpr.EmitDynamicCallPreamble(dyn, _spanMap, "__interop_ctor_" + RT.nextID(), returnType, paramExprs, paramTypes.ToArray(), ilg, out LambdaExpression lambda, out Type delType, out MethodBuilder mbLambda);
+            MethodExpr.EmitDynamicCallPreamble(dyn, _spanMap, "__interop_ctor_" + RT.nextID(), returnType, paramExprs, paramTypes.ToArray(), ilg, out Type delType, out MethodBuilder mbLambda);
 
             //  Emit target + args
 
@@ -271,7 +286,7 @@ namespace clojure.lang.CljCompiler.Ast
                 }
             }
             
-            MethodExpr.EmitDynamicCallPostlude(lambda, delType, mbLambda, ilg); 
+            MethodExpr.EmitDynamicCallPostlude(mbLambda, ilg); 
         }
 
         private void EmitTargetExpression(ObjExpr objx, CljILGen ilg)

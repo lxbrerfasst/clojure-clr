@@ -29,7 +29,7 @@ namespace clojure.lang
         /// <summary>
         ///  Caches the hash code, once computed.
         /// </summary>
-        int _hash;
+        //int _hash;
 
         /// <summary>
         /// Caches the hashseq code, when computed.
@@ -127,18 +127,19 @@ namespace clojure.lang
         /// <returns>A hash code for the current object.</returns>
         public override int GetHashCode()
         {
-            int hash = _hash;
-            if (hash == 0)
-            {
-                hash = 1;
-                for (int i = 0; i < count(); i++)
-                {
-                    Object obj = nth(i);
-                    hash = 31 * hash + (obj == null ? 0 : obj.GetHashCode());
-                }
-                this._hash = hash;
-            }
-            return hash;
+            return hasheq();
+            //int hash = _hash;
+            //if (hash == 0)
+            //{
+            //    hash = 1;
+            //    for (int i = 0; i < count(); i++)
+            //    {
+            //        Object obj = nth(i);
+            //        hash = 31 * hash + (obj == null ? 0 : obj.GetHashCode());
+            //    }
+            //    this._hash = hash;
+            //}
+            //return hash;
         } 
 
 
@@ -212,15 +213,18 @@ namespace clojure.lang
 
             if (obj is IList ilist)
             {
-                if (ilist.Count != v.count())   // THis test in the JVM code can't be right:  || ma.GetHashCode() != v.GetHashCode())
+                if ((!(ilist is IPersistentCollection) || (ilist is Counted)) && (ilist.Count != v.count()))
                     return false;
 
-                for (int i = 0; i < v.count(); i++)
+                var i2 = ilist.GetEnumerator();
+
+                for (var i1 = ((IList)v).GetEnumerator(); i1.MoveNext();)
                 {
-                    if (!Util.equiv(v.nth(i), ilist[i]))
+                    if (!i2.MoveNext() || !Util.equiv(i1.Current,i2.Current))
                         return false;
                 }
-                return true;
+
+                return !i2.MoveNext();
             }
 
             if (!(obj is Sequential))
@@ -910,6 +914,8 @@ namespace clojure.lang
                 object ret = _v.nth(_i);
                 for (int x = _i-1; x >= 0; x--)
                     ret = f.invoke(ret, _v.nth(x));
+                    if (RT.isReduced(ret))
+                        return ((IDeref)ret).deref();
                 return ret;
             }
 
@@ -923,7 +929,9 @@ namespace clojure.lang
             {
                 object ret = start;
                 for (int x = _i; x >= 0; x--)
-                   ret = f.invoke(ret, _v.nth(x));
+                    ret = f.invoke(ret, _v.nth(x));
+                if (RT.isReduced(ret))
+                    return ((IDeref)ret).deref();
                 return ret;
             }
 
@@ -935,7 +943,7 @@ namespace clojure.lang
         /// Internal class providing subvector functionality for <see cref="APersistentVector">APersistentVector</see>.
         /// </summary>
         [Serializable]
-        public sealed class SubVector : APersistentVector, IPersistentCollection, IObj, IEnumerable
+        public sealed class SubVector : APersistentVector, IPersistentCollection, IObj, IEnumerable, IKVReduce
         {
             #region Data
 
@@ -1138,6 +1146,21 @@ namespace clojure.lang
                 if (_v is APersistentVector av)
                     return av.RangedIteratorT(_start, _end);
                 return base.GetEnumerator();    
+            }
+
+            #endregion
+
+            #region IKVReduce members
+            public object kvreduce(IFn f, object init)
+            {
+                int cnt = count();
+                for ( int  i=0; i<cnt; i++)
+                {
+                    init = f.invoke(init, i, _v.nth(_start + i));
+                    if (RT.isReduced(init))
+                        return ((IDeref)init).deref();
+                }
+                return init;
             }
 
             #endregion

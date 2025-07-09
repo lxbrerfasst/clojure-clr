@@ -51,6 +51,12 @@ namespace BootstrapCompile
             // Force load to avoid transitive compilation during lazy load
             Compiler.EnsureMacroCheck();
 
+#if NETFRAMEWORK
+            Console.WriteLine("BootstrapCompile: .NET Framework detected.");
+#else
+            Console.WriteLine("BootstrapCompile: .NET Core detected.");
+#endif
+
             try
             {
                 Var.pushThreadBindings(RT.map(
@@ -75,6 +81,7 @@ namespace BootstrapCompile
             catch (Exception e)
             {
                 errTW.WriteLine(e.ToString());
+                errTW.Flush();
                 Environment.Exit(1);
             }
             finally
@@ -86,6 +93,7 @@ namespace BootstrapCompile
                 catch ( IOException e)
                 {
                     errTW.WriteLine(e.StackTrace);
+                    errTW.Flush();
                 }
             }
 

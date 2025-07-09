@@ -12,7 +12,15 @@
 (ns clojure.test-clojure.serialization
   (:use clojure.test)
   (:import (System.IO MemoryStream)                                                 ;;;(java.io ObjectOutputStream ObjectInputStream
-           (System.Runtime.Serialization.Formatters.Binary BinaryFormatter)))        ;;; ByteArrayOutputStream ByteArrayInputStream)))
+           #_(System.Runtime.Serialization.Formatters.Binary BinaryFormatter)))        ;;; ByteArrayOutputStream ByteArrayInputStream)))   -- defer import until after load
+
+(compile-when (>= (:major clojure-version) 9)
+
+(assembly-load-from "System.Runtime.Serialization.Formatters.dll")
+
+)
+
+(import '(System.Runtime.Serialization.Formatters.Binary BinaryFormatter))
 
 (defn- serialize
   "Serializes a single object, returning a byte array."
@@ -151,7 +159,8 @@
 
      ; vars get serialized back into the same var in the present runtime
     #'clojure.core/conj))
- 
+
+
  (deftest new-var-unbound-on-read
   (let [v (intern 'user 'foobarbaz 10)
         sv (serialize v)]
@@ -186,4 +195,9 @@
     (enumeration-seq (.GetEnumerator (range 50)))              ;;; (java.util.Collections/enumeration (range 50)))
     (iterator-seq (.GetEnumerator (range 50)))))               ;;; (.iterator (range 50)))))
     
-    
+;; necessary for CVE-2024-22871
+(deftest CLJ-2839
+  (are [e] (thrown? Exception (.GetHashCode ^Object (-> e serialize deserialize)))              ;;; .hashCode
+    (repeat 1)
+    (iterate identity nil)
+    (cycle [1])))    

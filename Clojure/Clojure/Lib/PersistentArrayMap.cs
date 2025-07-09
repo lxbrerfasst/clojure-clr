@@ -31,7 +31,7 @@ namespace clojure.lang
     /// use <see cref="contains">contains</see> or <see cref="entryAt">entryAt</see>.</para>
     /// </remarks>
     [Serializable]
-    public class PersistentArrayMap : APersistentMap, IObj, IEditableCollection, IMapEnumerable, IMapEnumerableTyped<Object,Object>, IEnumerable, IEnumerable<IMapEntry>, IKVReduce
+    public class PersistentArrayMap : APersistentMap, IObj, IEditableCollection, IMapEnumerable, IMapEnumerableTyped<Object,Object>, IEnumerable, IEnumerable<IMapEntry>, IKVReduce, IDrop
     {
         #region Data
 
@@ -106,11 +106,60 @@ namespace clojure.lang
         }
 
 
+        // This method attempts to find resue [sic] the given array as the basis for an array map as quickly as possible.
+        // If a trailing element exists in the array or it contains duplicate keys then it delegates to the complex path.
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "ClojureJVM name match")]
         public static PersistentArrayMap createAsIfByAssoc(Object[] init)
         {
-            if ((init.Length & 1) == 1)
-                throw new ArgumentException(String.Format("No value supplied for key: {0}", init[init.Length - 1]), "init");
+            bool complexPath, hasTrailing;
+            complexPath = hasTrailing = ((init.Length & 1) == 1);
+
+            for (int i = 0; i < init.Length && !complexPath; i += 2)
+            {
+                for (int j = 0; j < i; j += 2)
+                {
+                    if (EqualKey(init[i], init[j]))
+                    {
+                        complexPath = true;
+                        break;
+                    }
+                }
+            }
+
+            if (complexPath) return createAsIfByAssocComplexPath(init, hasTrailing);
+
+            return new PersistentArrayMap(init);
+        }
+
+        private static object[] GrowSeedArray(Object[] seed, IPersistentCollection trailing)
+        {
+            ISeq extraKVs = trailing.seq();
+            int seedCount = seed.Length - 1;
+            Array.Resize(ref seed, seedCount + trailing.count() * 2);
+            for (int i = seedCount; extraKVs != null; extraKVs = extraKVs.next(), i += 2)
+            {
+                IMapEntry e = (MapEntry)extraKVs.first();
+                seed[i] = e.key();
+                seed[i + 1] = e.val();
+            }
+
+            return seed;
+        }
+
+        // This method handles the default case of an array containing alternating key/value pairs.
+        // It will reallocate a smaller init array if duplicate keys are found.
+        //
+        // If a trailing element is found then will attempt to add it to the resulting map as if by conj.
+        // NO guarantees about the order of the keys in the trailing element are made.
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "<Pending>")]
+        private static PersistentArrayMap createAsIfByAssocComplexPath(object[] init, bool hasTrailing)
+        {
+            if (hasTrailing)
+            {
+                IPersistentCollection trailing = PersistentArrayMap.EMPTY.cons(init[init.Length-1]);
+                init = GrowSeedArray(init, trailing);
+            }
+
 
             // ClojureJVM says: If this looks like it is doing busy-work, it is because it
             // is achieving these goals: O(n^2) run time like
@@ -467,7 +516,7 @@ namespace clojure.lang
         /// for <see cref="PersistentArrayMap">PersistentArrayMap</see>s.
         /// </summary>
         [Serializable]
-        protected sealed class Seq : ASeq, Counted
+        public class Seq : ASeq, Counted, IReduce, IDrop, IEnumerable
         {
             #region Data
 
@@ -564,6 +613,64 @@ namespace clojure.lang
 
             #endregion
 
+            #region IReduce members
+
+            public object reduce(IFn f)
+            {
+                if (_i < _array.Length)
+                {
+                    Object acc = MapEntry.create(_array[_i], _array[_i + 1]);
+                    for (int j = _i + 2; j < _array.Length; j += 2)
+                    {
+                        acc = f.invoke(acc, MapEntry.create(_array[j], _array[j + 1]));
+                        if (RT.isReduced(acc))
+                            return ((IDeref)acc).deref();
+                    }
+                    return acc;
+                }
+                else
+                    return f.invoke();
+            }
+
+            public object reduce(IFn f, object start)
+            {
+                Object acc = start;
+                for (int j = _i; j < _array.Length; j += 2)
+                {
+                    acc = f.invoke(acc, MapEntry.create(_array[j], _array[j + 1]));
+                    if (RT.isReduced(acc))
+                        return ((IDeref)acc).deref();
+                }
+                return acc;
+            }
+
+            #endregion
+
+            #region IDrop members
+
+            public Sequential drop(int n)
+            {
+                if (n < count())
+                    return new Seq(_array, _i + 2 * n);
+                else
+                    return null;
+            }
+
+            #endregion
+
+            #region IEnumerable
+
+            public override IEnumerator<object> GetEnumerator()
+            {
+                for (int j=_i; j < _array.Length; j+=2 )
+                    yield return MapEntry.create(_array[j], _array[j+1]);
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return GetEnumerator();
+            }
+            #endregion
         }
 
         #region IEditableCollection Members
@@ -697,6 +804,23 @@ namespace clojure.lang
         }
 
         #endregion
+
+        #region IDrop members
+
+        public Sequential drop(int n)
+        {
+            if (_array.Length > 0)
+            {
+                return ((Seq)seq()).drop(n);
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        #endregion
+
 
         #region IMapEnumerable, IMapEnumerableTyped, IEnumerable ...
 

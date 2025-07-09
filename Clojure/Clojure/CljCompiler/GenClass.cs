@@ -19,10 +19,11 @@ using System.Reflection;
 using System.Reflection.Emit;
 using clojure.lang.CljCompiler;
 using clojure.lang.CljCompiler.Ast;
+using clojure.lang.CljCompiler.Context;
 using Microsoft.Scripting.Generation;
 
 namespace clojure.lang
-{  
+{
     public static class GenClass
     { 
         #region Data
@@ -415,7 +416,7 @@ namespace clojure.lang
             gen.MarkLabel(endLabel);
             gen.Emit(OpCodes.Ret);
 
-#if NET461
+#if NETFRAMEWORK
             //context.AssyBldr.SetEntryPoint(cb);
             context.AssemblyBuilder.SetEntryPoint(cb);
 #endif

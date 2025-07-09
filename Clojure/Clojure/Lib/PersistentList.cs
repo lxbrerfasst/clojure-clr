@@ -112,7 +112,7 @@ namespace clojure.lang
             {
                 if (args is IArraySeq ias)
                 {
-                    object[] argsarray = (object[])ias.ToArray();
+                    object[] argsarray = (object[])ias.Array();
                     IPersistentList ret = EMPTY;
                     for (int i = argsarray.Length - 1; i >= ias.index(); i--)
                         ret = (IPersistentList)ret.cons(argsarray[i]);
@@ -130,7 +130,7 @@ namespace clojure.lang
             {
                 if (args is IArraySeq ias)
                 {
-                    object[] argsarray = (object[])ias.ToArray();
+                    object[] argsarray = (object[])ias.Array();
                     IPersistentList ret = EMPTY;
                     for (int i = argsarray.Length - 1; i >= 0; i--)
                         ret = (IPersistentList)ret.cons(argsarray[i]);
@@ -326,7 +326,8 @@ namespace clojure.lang
             /// <returns>The hash code</returns>
             public override int GetHashCode()
             {
-                return 1;
+                return _hasheq;
+                //  return 1;
             }
 
             /// <summary>

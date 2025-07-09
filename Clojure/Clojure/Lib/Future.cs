@@ -60,10 +60,9 @@ namespace clojure.lang
 
                 _value = ((IFn)state).invoke();
             }
-            catch (ThreadAbortException)
+            catch (ThreadInterruptedException)
             {
                 _cancelled = true;
-                Thread.ResetAbort();
             }
             catch (Exception ex)
             {
@@ -103,7 +102,7 @@ namespace clojure.lang
                 // Don't abort until the task thread has established its ThreadAbortException catch block.
                 _started.WaitOne();
 
-                _t.Abort();
+                _t.Interrupt();
             }
             _t.Join();
             return _cancelled;
@@ -149,6 +148,24 @@ namespace clojure.lang
             }
             return _value;      
         }
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "ClojureJVM name match")]
+        public object get(int millis, object timeoutValue)
+        {
+            if (!_t.Join(millis))
+                return timeoutValue;
+            if (_cancelled)
+            {
+                throw new FutureAbortedException();
+            }
+            if (_error != null)
+            {
+                throw new InvalidOperationException("Future has an error", _error);
+            }
+            return _value;
+        }
+
+
 
         #endregion
 

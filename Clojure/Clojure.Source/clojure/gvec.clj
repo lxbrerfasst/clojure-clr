@@ -87,7 +87,7 @@
       (.chunkedNext this)))
   (more [this]
     (let [s (.next this)]
-      (or s (clojure.lang.PersistentList/EMPTY))))
+      (or s clojure.lang.PersistentList/EMPTY)))
   (^clojure.lang.ISeq cons [this ^Object o]                          ;;; type hint added due to cons overload of ISeq vs IPersistentCollection
     (clojure.lang.Cons. o this))
   (count [this]
@@ -124,7 +124,7 @@
        (new VecSeq am vec (.arrayFor vec nexti) nexti 0 nil))))
   (chunkedMore [this]
     (let [s (.chunkedNext this)]
-      (or s (clojure.lang.PersistentList/EMPTY))))
+      (or s clojure.lang.PersistentList/EMPTY)))
 
   clojure.lang.IMeta
   (meta [_]
@@ -142,7 +142,7 @@ Object
         (let [v (first s)]
           (if (nil? v)
             (recur (unchecked-multiply-int 31 hash) (next s))
-            (recur (unchecked-add-int (unchecked-multiply-int 31 hash) (.GetHashCode  ^Object  v)) (next s))))    ;;; .hashCode
+            (recur (unchecked-add-int (unchecked-multiply-int 31 hash) (clojure.lang.Util/hasheq ^Object  v)) (next s))))    ;;; .hashCode
         hash)))
   (Equals [this other]                                                                                  ;;; equals
     (cond (identical? this other) true

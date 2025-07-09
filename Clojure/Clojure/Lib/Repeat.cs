@@ -18,7 +18,7 @@ using System;
 
 namespace clojure.lang
 {
-    public class Repeat : ASeq, IReduce
+    public class Repeat : ASeq, IReduce, IDrop
     {
         #region Data
 
@@ -57,6 +57,28 @@ namespace clojure.lang
             if (count <= 0)
                 return PersistentList.EMPTY;
             return new Repeat(count, val);
+        }
+
+        #endregion
+        #region Object overrides
+
+        public override int GetHashCode()
+        {
+            if ( _count <= 0 ) 
+                throw new NotSupportedException("Repeat: hash not supported");
+            else
+                return base.GetHashCode();
+        }
+
+        #endregion
+
+        #region IHashEq methods
+        public override int hasheq()
+        {
+            if (_count <= 0)
+                throw new NotSupportedException("Repeat: hasheq not supported");
+            else
+                return base.hasheq();
         }
 
         #endregion
@@ -144,6 +166,30 @@ namespace clojure.lang
                 return ret;
             }
         }
+
+        #endregion
+
+        #region IDrop methods
+
+        public Sequential drop(int n)
+        {
+            if (_count == INFINITE)
+            {
+                return this;
+            }
+            else
+            {
+                long droppedCount = _count - n;
+                if (droppedCount > 0)
+                {
+                    return new Repeat(droppedCount, _val);
+                }
+                else
+                {
+                    return null;
+                }
+            }
+    }
 
         #endregion
     }

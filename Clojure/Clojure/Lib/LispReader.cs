@@ -567,10 +567,17 @@ namespace clojure.lang
             throw new ArgumentException("Invalid token: " + rawToken);
         }
 
+        // Java originals, for comparison
+        //static Pattern symbolPat = Pattern.compile("[:]?([\\D&&[^/]].*/)?(/|[\\D&&[^/]][^/]*)");
+        //static Pattern arraySymbolPat = Pattern.compile("([\\D&&[^/:]].*)/([1-9])");
 
         //static Regex symbolPat = new Regex("[:]?([\\D&&[^/]].*/)?(/|[\\D&&[^/]][^/]*)");
+        //static readonly Regex arraySymbolPat = new Regex("([\\D&&[^/:]].*)/([1-9])");
+
         static readonly Regex symbolPat = new Regex("^[:]?([^\\p{Nd}/].*/)?(/|[^\\p{Nd}/][^/]*)$");
+        static readonly Regex arraySymbolPat = new Regex("^([^\\p{Nd}/].*/)([1-9])$");
         static readonly Regex keywordPat = new Regex("^[:]?([^/].*/)?(/|[^/][^/]*)$");
+        static readonly Regex argPat = new Regex("^%(?:(&)|([1-9][0-9]*))?$");
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Standard API")]
         private static void ExtractNamesUsingMask(string token, string maskNS, string maskName, out string ns, out string name)
@@ -651,6 +658,17 @@ namespace clojure.lang
                 }
                 else
                 {
+                    ExtractNamesUsingMask(token, maskNS, maskName, out string ns, out string name);
+                    return Symbol.intern(ns, name);
+                }
+            }
+            else
+            {
+                Match m3 = arraySymbolPat.Match(mask);
+                if ( m3.Success)
+                {
+                    string maskNS = m3.Groups[1].Value;
+                    string maskName = m3.Groups[2].Value;
                     ExtractNamesUsingMask(token, maskNS, maskName, out string ns, out string name);
                     return Symbol.intern(ns, name);
                 }
@@ -1640,8 +1658,10 @@ namespace clojure.lang
                         metaAsMap = RT.map(RT.TagKey, meta);
                     else if (meta is Keyword)
                         metaAsMap = RT.map(meta, true);
+                    else if (meta is IPersistentVector)
+                        metaAsMap = RT.map(RT.ParamTagsKey, meta);
                     else if ((metaAsMap = meta as IPersistentMap) == null)
-                        throw new ArgumentException("Metadata must be Symbol,Keyword,String or Map");
+                        throw new ArgumentException("Metadata must be Symbol,Keyword,String,Vector or Map");
                 }
 
                 object o = ReadAux(r, opts, pendingForms);
@@ -1778,27 +1798,21 @@ namespace clojure.lang
         {
             protected override object Read(PushbackTextReader r, char pct, object opts, object pendingForms)
             {
-                //if (ARG_ENV.deref() == null)
-                //    return interpretToken(readToken(r, '%'));
+                var token = readSimpleToken(r, '%');
+
                 if (ARG_ENV.deref() == null)
                 {
-                    return InterpretToken(readSimpleToken(r, '%'), null);
+                    return InterpretToken(token, null);
                 }
 
-                int ch = r.Read();
-                Unread(r, ch);
-                //% alone is first arg
-                if (ch == -1 || isWhitespace(ch) || isTerminatingMacro(ch))
-                {
-                    return registerArg(1);
-                }
-                //object n = ReadAux(r, true, null, true, opts, pendingForms);
-                object n = ReadAux(r, opts, EnsurePending(pendingForms));
-                if (n.Equals(Compiler.AmpersandSym))
-                    return registerArg(-1);
-                if (!Util.IsNumeric(n))
+                Match m = argPat.Match(token);
+                if (!m.Success)
                     throw new ArgumentException("arg literal must be %, %& or %integer");
-                return registerArg(Util.ConvertToInt(n));
+
+                if (m.Groups[1].Success) // %&
+                    return registerArg(-1);
+
+                return registerArg(m.Groups[2].Success ? int.Parse(m.Groups[2].Value) : 1);
             }
 
             [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "ClojureJVM name match")]

@@ -14,11 +14,11 @@
 
 ;; DM: Added
 ;; Copied from reducers.clj, modified compile-if to compile-when
-(defmacro ^:private compile-when
-  [exp & body]
-  (when (try (eval exp)
-           (catch Exception _ false))                      ;;; Throwable
-    `(do ~@body)))
+;;(defmacro ^:private compile-when
+;;  [exp & body]
+;;  (when (try (eval exp)
+;;           (catch Exception _ false))                      ;;; Throwable
+;;    `(do ~@body)))
 
 (deftest calls-once
   (let [a (atom 0)
@@ -91,3 +91,24 @@
     (.SignalAndWait barrier)                                                  ;;; .await
     (is (instance? Exception (try-call)))
     (is (identical? (try-call) (try-call)))))
+
+#_(deftest delays-are-suppliers
+  (let [dt (delay true)
+        df (delay false)
+        dn (delay nil)
+        di (delay 100)]
+
+    (is (instance? java.util.function.Supplier dt))
+    (is (instance? java.util.function.BooleanSupplier dt))
+    (is (true? (.get dt)))
+    (is (true? (.getAsBoolean dt)))
+    (is (false? (.getAsBoolean df)))
+    (is (false? (.getAsBoolean dn)))
+
+    (is (instance? java.util.function.Supplier di))
+    (is (instance? java.util.function.IntSupplier di))
+    (is (instance? java.util.function.LongSupplier di))
+    (is (= 100 (.get ^java.util.function.Supplier di)))
+    (is (= 100 (.getAsInt ^java.util.function.IntSupplier di)))
+    (is (= 100 (.getAsLong ^java.util.function.LongSupplier di)))
+    (is (= 100.0 (.getAsDouble ^java.util.function.DoubleSupplier di)))))
